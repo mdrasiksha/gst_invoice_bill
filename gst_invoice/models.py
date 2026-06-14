@@ -29,6 +29,7 @@ class Company(db.Model):
     account_number = db.Column(db.String(60), default="")
     ifsc = db.Column(db.String(20), default="")
     upi_id = db.Column(db.String(120), default="")
+    upi_qr_image_url = db.Column(db.String(300), default="")
     invoice_prefix = db.Column(db.String(12), default="INV")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -113,7 +114,7 @@ class InvoiceItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey("invoices.id"), nullable=False, index=True)
     item_name = db.Column(db.String(240), nullable=False)
-    hsn_sac = db.Column(db.String(30), nullable=False)
+    hsn_sac = db.Column(db.String(30), nullable=True, default="")
     quantity = db.Column(db.Float, nullable=False)
     unit_price = db.Column(db.Float, nullable=False)
     gst_percentage = db.Column(db.Float, nullable=False)

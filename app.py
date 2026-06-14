@@ -17,8 +17,10 @@ from gst_invoice.validators import ALLOWED_GST_RATES, parse_gst_rate, parse_posi
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads" / "company_logos"
+QR_DIR = BASE_DIR / "uploads" / "upi_qr"
 PDF_DIR = BASE_DIR / "uploads" / "invoices"
 ALLOWED_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+ALLOWED_QR_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
 def create_app() -> Flask:
@@ -33,7 +35,7 @@ def create_app() -> Flask:
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true",
     )
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True); PDF_DIR.mkdir(parents=True, exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True); QR_DIR.mkdir(parents=True, exist_ok=True); PDF_DIR.mkdir(parents=True, exist_ok=True)
     db.init_app(app)
     login_manager = LoginManager(app); login_manager.login_view = "login"; login_manager.session_protection = "strong"
 
@@ -55,9 +57,23 @@ def create_app() -> Flask:
         session.setdefault("csrf_token", secrets.token_urlsafe(32))
         return {"csrf_token": session["csrf_token"]}
 
-    with app.app_context(): db.create_all()
+    with app.app_context():
+        db.create_all()
+        ensure_database_columns()
 
     return app
+
+
+
+def ensure_database_columns() -> None:
+    """Add lightweight backwards-compatible columns for existing SQLite installs."""
+    uri = str(db.engine.url)
+    if not uri.startswith("sqlite"):
+        return
+    with db.engine.begin() as conn:
+        company_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(companies)")}
+        if "upi_qr_image_url" not in company_cols:
+            conn.exec_driver_sql("ALTER TABLE companies ADD COLUMN upi_qr_image_url VARCHAR(300) DEFAULT ''")
 
 
 app = create_app()
@@ -65,14 +81,20 @@ pdf = PDFGenerator(output_dir=PDF_DIR)
 logger = logging.getLogger(__name__)
 
 
-def save_logo(upload) -> str:
+def save_upload(upload, upload_dir: Path, allowed_extensions: set[str], label: str) -> str:
     if not upload or not upload.filename: return ""
     suffix = Path(upload.filename).suffix.lower()
-    if suffix not in ALLOWED_LOGO_EXTENSIONS: raise ValueError("Logo must be PNG, JPG, or JPEG.")
+    if suffix not in allowed_extensions: raise ValueError(f"{label} must be PNG, JPG" + (", JPEG, or WEBP." if ".webp" in allowed_extensions else ", or JPEG."))
     filename = f"company-{current_user.company_id}-{secrets.token_hex(8)}{suffix}"
-    target = UPLOAD_DIR / secure_filename(filename)
+    target = upload_dir / secure_filename(filename)
     upload.save(target)
     return str(target.relative_to(BASE_DIR))
+
+def save_logo(upload) -> str:
+    return save_upload(upload, UPLOAD_DIR, ALLOWED_LOGO_EXTENSIONS, "Logo")
+
+def save_upi_qr(upload) -> str:
+    return save_upload(upload, QR_DIR, ALLOWED_QR_EXTENSIONS, "UPI QR image")
 
 
 def update_company_from_form(company: Company):
@@ -83,6 +105,9 @@ def update_company_from_form(company: Company):
     company.bank_name=f.get("bank_name", "").strip(); company.account_number=f.get("account_number", "").strip(); company.ifsc=f.get("ifsc", "").strip().upper(); company.upi_id=f.get("upi_id", "").strip()
     logo = save_logo(request.files.get("logo"));
     if logo: company.logo_path = logo
+    qr = save_upi_qr(request.files.get("upi_qr_image"));
+    if qr: company.upi_qr_image_url = qr
+    if f.get("remove_upi_qr") == "1": company.upi_qr_image_url = ""
     if not company.company_name or not company.gstin or not company.address: raise ValueError("Company name, GSTIN and address are required.")
 
 
@@ -187,7 +212,7 @@ def create_invoice():
             hsn_values=request.form.getlist("hsn_sac[]"); qty_values=request.form.getlist("quantity[]"); price_values=request.form.getlist("unit_price[]"); gst_values=request.form.getlist("gst_percentage[]"); discount_values=request.form.getlist("discount_percentage[]")
             for idx,name in enumerate(request.form.getlist("item_name[]")):
                 if not name.strip(): continue
-                item=InvoiceItem(item_name=name.strip(), hsn_sac=hsn_values[idx].strip(), quantity=parse_positive_float(qty_values[idx],"Quantity"), unit_price=parse_positive_float(price_values[idx],"Unit price",allow_zero=True), gst_percentage=parse_gst_rate(gst_values[idx]), discount_percentage=parse_positive_float(discount_values[idx],"Discount",allow_zero=True))
+                item=InvoiceItem(item_name=name.strip(), hsn_sac=hsn_values[idx].strip() if idx < len(hsn_values) else "", quantity=parse_positive_float(qty_values[idx],"Quantity"), unit_price=parse_positive_float(price_values[idx],"Unit price",allow_zero=True), gst_percentage=parse_gst_rate(gst_values[idx]), discount_percentage=parse_positive_float(discount_values[idx],"Discount",allow_zero=True))
                 validate_item(item); inv.items.append(item)
             if not inv.items: raise ValueError("Add at least one product or service row.")
             validate_invoice_dates(inv.invoice_date, inv.due_date); calculate_invoice(inv); db.session.add(inv); db.session.flush(); inv.pdf_path=pdf.generate(inv); db.session.commit(); logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
@@ -197,7 +222,7 @@ def create_invoice():
         except Exception as exc:
             db.session.rollback(); logger.exception("Invoice PDF generation failed")
             if wants_json:
-                return jsonify({"ok": False, "message": "We could not generate the PDF. Please check the invoice details and try again."}), 400
+                return jsonify({"ok": False, "message": "Unable to generate invoice PDF. Please try again."}), 400
             flash(str(exc), "danger")
     defaults={"invoice_number":next_invoice_number(current_user.company_id),"invoice_date":date.today().isoformat(),"due_date":(date.today()+timedelta(days=15)).isoformat()}
     return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES)
