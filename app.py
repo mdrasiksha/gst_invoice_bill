@@ -1,11 +1,11 @@
 """Multi-tenant SaaS web application for GST invoice generation."""
 from __future__ import annotations
 
-import os, secrets
+import logging, os, secrets
 from datetime import date, timedelta
 from pathlib import Path
 
-from flask import Flask, abort, flash, redirect, render_template, request, send_file, send_from_directory, session, url_for
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 from werkzeug.utils import secure_filename
 
@@ -62,6 +62,7 @@ def create_app() -> Flask:
 
 app = create_app()
 pdf = PDFGenerator(output_dir=PDF_DIR)
+logger = logging.getLogger(__name__)
 
 
 def save_logo(upload) -> str:
@@ -175,16 +176,29 @@ def uploaded_file(filename):
 @login_required
 def create_invoice():
     if request.method == "POST":
+        wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest" or "application/json" in request.headers.get("Accept", "")
         try:
-            customer = Customer.query.filter_by(id=int(request.form.get("customer_id")), company_id=current_user.company_id).first_or_404()
+            customer_id = request.form.get("customer_id", type=int)
+            if not customer_id:
+                raise ValueError("Select a customer before generating the PDF.")
+            customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first_or_404()
             inv=Invoice(company=current_user.company, customer=customer, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=parse_required_date(request.form.get("invoice_date"),"Invoice date"), due_date=parse_required_date(request.form.get("due_date"),"Due date"), place_of_supply=request.form.get("place_of_supply","").strip(), state_code=request.form.get("state_code","").strip() or customer.state_code or current_user.company.state_code)
+            setattr(inv, "terms", request.form.get("terms", "").strip())
+            hsn_values=request.form.getlist("hsn_sac[]"); qty_values=request.form.getlist("quantity[]"); price_values=request.form.getlist("unit_price[]"); gst_values=request.form.getlist("gst_percentage[]"); discount_values=request.form.getlist("discount_percentage[]")
             for idx,name in enumerate(request.form.getlist("item_name[]")):
                 if not name.strip(): continue
-                item=InvoiceItem(item_name=name.strip(), hsn_sac=request.form.getlist("hsn_sac[]")[idx].strip(), quantity=parse_positive_float(request.form.getlist("quantity[]")[idx],"Quantity"), unit_price=parse_positive_float(request.form.getlist("unit_price[]")[idx],"Unit price",allow_zero=True), gst_percentage=parse_gst_rate(request.form.getlist("gst_percentage[]")[idx]), discount_percentage=parse_positive_float(request.form.getlist("discount_percentage[]")[idx],"Discount",allow_zero=True))
+                item=InvoiceItem(item_name=name.strip(), hsn_sac=hsn_values[idx].strip(), quantity=parse_positive_float(qty_values[idx],"Quantity"), unit_price=parse_positive_float(price_values[idx],"Unit price",allow_zero=True), gst_percentage=parse_gst_rate(gst_values[idx]), discount_percentage=parse_positive_float(discount_values[idx],"Discount",allow_zero=True))
                 validate_item(item); inv.items.append(item)
             if not inv.items: raise ValueError("Add at least one product or service row.")
-            validate_invoice_dates(inv.invoice_date, inv.due_date); calculate_invoice(inv); db.session.add(inv); db.session.flush(); inv.pdf_path=pdf.generate(inv); db.session.commit(); flash(f"Invoice {inv.invoice_number} saved.", "success"); return redirect(url_for("invoice_preview", invoice_id=inv.id))
-        except Exception as exc: db.session.rollback(); flash(str(exc), "danger")
+            validate_invoice_dates(inv.invoice_date, inv.due_date); calculate_invoice(inv); db.session.add(inv); db.session.flush(); inv.pdf_path=pdf.generate(inv); db.session.commit(); logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
+            if wants_json:
+                return jsonify({"ok": True, "message": f"Invoice {inv.invoice_number} generated successfully.", "download_url": url_for("download_pdf", invoice_id=inv.id), "filename": f"{inv.invoice_number}.pdf"})
+            flash(f"Invoice {inv.invoice_number} saved.", "success"); return redirect(url_for("download_pdf", invoice_id=inv.id))
+        except Exception as exc:
+            db.session.rollback(); logger.exception("Invoice PDF generation failed")
+            if wants_json:
+                return jsonify({"ok": False, "message": "We could not generate the PDF. Please check the invoice details and try again."}), 400
+            flash(str(exc), "danger")
     defaults={"invoice_number":next_invoice_number(current_user.company_id),"invoice_date":date.today().isoformat(),"due_date":(date.today()+timedelta(days=15)).isoformat()}
     return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES)
 
