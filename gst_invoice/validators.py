@@ -64,8 +64,6 @@ def validate_invoice_dates(invoice_date: date, due_date: date) -> None:
 def validate_item(item: InvoiceItem) -> None:
     if not item.item_name:
         raise ValueError("Every product row requires an item name.")
-    if not item.hsn_sac:
-        raise ValueError("Every product row requires an HSN/SAC code.")
     if item.quantity <= 0:
         raise ValueError("Quantity must be greater than zero.")
     if item.unit_price < 0:
