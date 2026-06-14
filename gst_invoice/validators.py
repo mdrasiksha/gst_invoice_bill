@@ -52,6 +52,8 @@ def validate_customer(customer: Customer) -> None:
         raise ValueError("Customer GSTIN is invalid.")
     if not validate_phone(customer.phone):
         raise ValueError("Customer phone number is invalid.")
+    if not validate_email(customer.email):
+        raise ValueError("Customer email is invalid.")
 
 
 def validate_invoice_dates(invoice_date: date, due_date: date) -> None:
@@ -68,6 +70,8 @@ def validate_item(item: InvoiceItem) -> None:
         raise ValueError("Quantity must be greater than zero.")
     if item.unit_price < 0:
         raise ValueError("Unit price cannot be negative.")
+    if item.discount_percentage < 0 or item.discount_percentage > 100:
+        raise ValueError("Discount must be between 0 and 100%.")
     if item.gst_percentage not in ALLOWED_GST_RATES:
         raise ValueError("Invalid GST percentage selected.")
 

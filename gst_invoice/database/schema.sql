@@ -5,6 +5,11 @@ CREATE TABLE IF NOT EXISTS company (
     address TEXT NOT NULL,
     phone TEXT,
     email TEXT,
+    website TEXT DEFAULT '',
+    bank_name TEXT DEFAULT '',
+    account_number TEXT DEFAULT '',
+    ifsc_code TEXT DEFAULT '',
+    upi_id TEXT DEFAULT '',
     state_code TEXT,
     logo_path TEXT
 );
@@ -14,6 +19,7 @@ CREATE TABLE IF NOT EXISTS customers (
     gstin TEXT,
     address TEXT NOT NULL,
     phone TEXT,
+    email TEXT DEFAULT '',
     state_code TEXT
 );
 CREATE TABLE IF NOT EXISTS invoices (
@@ -26,9 +32,11 @@ CREATE TABLE IF NOT EXISTS invoices (
     company_id INTEGER NOT NULL,
     customer_id INTEGER NOT NULL,
     taxable_amount REAL NOT NULL,
+    discount_total REAL DEFAULT 0,
     cgst REAL NOT NULL,
     sgst REAL NOT NULL,
     igst REAL NOT NULL,
+    round_off REAL DEFAULT 0,
     grand_total REAL NOT NULL,
     pdf_path TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -43,6 +51,8 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     quantity REAL NOT NULL,
     unit_price REAL NOT NULL,
     gst_percentage REAL NOT NULL,
+    discount_percentage REAL DEFAULT 0,
+    discount_amount REAL DEFAULT 0,
     taxable_value REAL NOT NULL,
     gst_amount REAL NOT NULL,
     total_amount REAL NOT NULL,
