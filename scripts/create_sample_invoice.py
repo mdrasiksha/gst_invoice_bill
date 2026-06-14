@@ -24,11 +24,12 @@ def main() -> None:
         state_code="29",
         company=company,
         customer=Customer(
-            "Acme Retail Pvt Ltd",
-            "29AAECA1234F1Z1",
-            "MG Road, Bengaluru, Karnataka",
-            "+91 90000 11111",
-            "29",
+            customer_name="Acme Retail Pvt Ltd",
+            gstin="29AAECA1234F1Z1",
+            address="MG Road, Bengaluru, Karnataka",
+            phone="+91 90000 11111",
+            email="accounts@acmeretail.example",
+            state_code="29",
         ),
         items=[
             InvoiceItem("Resume Writing Service", "998311", 2, 2500, 18),

@@ -1,39 +1,14 @@
 (function(){
-  const table=document.getElementById('itemsTable');
-  const addBtn=document.getElementById('addRowBtn');
-  const form=document.getElementById('invoiceForm');
+  const table=document.getElementById('itemsTable'), addBtn=document.getElementById('addRowBtn'), form=document.getElementById('invoiceForm');
   function money(v){return '₹'+Number(v||0).toFixed(2)}
-  function isIntra(){
-    const company=document.querySelector('[name="company_gstin"]')?.value.trim().slice(0,2);
-    const supply=document.querySelector('[name="state_code"]')?.value.trim();
-    return !supply || company===supply;
-  }
-  function recalc(){
-    if(!table) return;
-    let taxable=0,gst=0,total=0;
-    table.querySelectorAll('tbody tr').forEach(row=>{
-      const qty=parseFloat(row.querySelector('[name="quantity[]"]').value)||0;
-      const rate=parseFloat(row.querySelector('[name="unit_price[]"]').value)||0;
-      const gstRate=parseFloat(row.querySelector('[name="gst_percentage[]"]').value)||0;
-      const tx=Math.max(qty,0)*Math.max(rate,0);
-      const gstAmt=tx*gstRate/100;
-      const line=tx+gstAmt;
-      row.querySelector('.taxable').textContent=tx.toFixed(2);
-      row.querySelector('.gst-amount').textContent=gstAmt.toFixed(2);
-      row.querySelector('.line-total').textContent=line.toFixed(2);
-      taxable+=tx; gst+=gstAmt; total+=line;
-    });
-    const intra=isIntra();
-    document.getElementById('taxableTotal').textContent=money(taxable);
-    document.getElementById('cgstTotal').textContent=money(intra?gst/2:0);
-    document.getElementById('sgstTotal').textContent=money(intra?gst/2:0);
-    document.getElementById('igstTotal').textContent=money(intra?0:gst);
-    document.getElementById('grandTotal').textContent=money(total);
-  }
-  function bindRow(row){row.querySelectorAll('.calc').forEach(el=>el.addEventListener('input',recalc));row.querySelector('.remove-row').addEventListener('click',()=>{if(table.querySelectorAll('tbody tr').length>1){row.remove();recalc();}})}
+  function field(n){return document.querySelector(`[name="${n}"]`)}
+  function isIntra(){const company=field('company_gstin')?.value.trim().slice(0,2); const supply=field('state_code')?.value.trim(); return !supply || company===supply;}
+  function updateText(){document.querySelectorAll('[data-preview]').forEach(el=>{const src=field(el.dataset.preview); if(src) el.textContent=src.value || el.textContent;});}
+  function recalc(){ if(!table) return; let taxable=0,gst=0,total=0,discount=0,html=''; table.querySelectorAll('tbody tr').forEach(row=>{const name=row.querySelector('[name="item_name[]"]').value||'Item'; const qty=parseFloat(row.querySelector('[name="quantity[]"]').value)||0; const rate=parseFloat(row.querySelector('[name="unit_price[]"]').value)||0; const gstRate=parseFloat(row.querySelector('[name="gst_percentage[]"]').value)||0; const discRate=parseFloat(row.querySelector('[name="discount_percentage[]"]').value)||0; const gross=Math.max(qty,0)*Math.max(rate,0); const disc=gross*Math.min(Math.max(discRate,0),100)/100; const tx=gross-disc; const gstAmt=tx*gstRate/100; const line=tx+gstAmt; row.querySelector('.line-total').textContent=line.toFixed(2); taxable+=tx; gst+=gstAmt; total+=line; discount+=disc; html+=`<tr><td>${name}</td><td class="text-end">${tx.toFixed(2)}</td><td class="text-end">${line.toFixed(2)}</td></tr>`; }); const intra=isIntra(); const rounded=Math.round(total); const roundOff=rounded-total; const set=(id,val)=>{const el=document.getElementById(id); if(el) el.textContent=money(val)}; set('taxableTotal',taxable); set('discountTotal',discount); set('cgstTotal',intra?gst/2:0); set('sgstTotal',intra?gst/2:0); set('igstTotal',intra?0:gst); set('roundOffTotal',roundOff); set('grandTotal',rounded); const pi=document.getElementById('previewItems'); if(pi) pi.innerHTML=html||'<tr><td colspan="3" class="text-muted">Add an item</td></tr>'; const tt=document.getElementById('previewTaxType'); if(tt) tt.textContent=intra?'CGST + SGST':'IGST'; updateText(); localStorage.setItem('gstInvoiceDraft', JSON.stringify(Object.fromEntries(new FormData(form||document.createElement('form')).entries()))); }
+  function bindRow(row){row.querySelectorAll('input,select,textarea').forEach(el=>el.addEventListener('input',recalc));row.querySelector('.remove-row')?.addEventListener('click',()=>{if(table.querySelectorAll('tbody tr').length>1){row.remove();recalc();}})}
   if(table){table.querySelectorAll('tbody tr').forEach(bindRow);table.addEventListener('change',recalc)}
-  if(addBtn){addBtn.addEventListener('click',()=>{const clone=table.querySelector('tbody tr').cloneNode(true);clone.querySelectorAll('input').forEach(input=>{input.value=input.name==='quantity[]'?'1':input.name==='unit_price[]'?'0':''});clone.querySelector('[name="gst_percentage[]"]').value='18.0';table.querySelector('tbody').appendChild(clone);bindRow(clone);recalc();});}
-  document.querySelectorAll('[name="company_gstin"],[name="state_code"]').forEach(el=>el.addEventListener('input',recalc));
-  if(form){form.addEventListener('submit',event=>{if(!form.checkValidity()){event.preventDefault();event.stopPropagation();}else{document.getElementById('loadingOverlay')?.classList.remove('d-none');}form.classList.add('was-validated');});form.addEventListener('reset',()=>setTimeout(recalc,0));}
+  if(addBtn){addBtn.addEventListener('click',()=>{const clone=table.querySelector('tbody tr').cloneNode(true);clone.querySelectorAll('input').forEach(input=>{input.value=input.name==='quantity[]'?'1':input.name==='unit_price[]'||input.name==='discount_percentage[]'?'0':''});clone.querySelector('[name="gst_percentage[]"]').value='18.0';table.querySelector('tbody').appendChild(clone);bindRow(clone);recalc();});}
+  document.querySelectorAll('input,select,textarea').forEach(el=>el.addEventListener('input',recalc));
+  if(form){form.addEventListener('submit',event=>{if(!form.checkValidity()){event.preventDefault();event.stopPropagation();}else{document.getElementById('loadingOverlay')?.classList.remove('d-none');}form.classList.add('was-validated');});}
   recalc();
 })();
