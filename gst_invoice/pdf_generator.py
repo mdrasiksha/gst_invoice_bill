@@ -35,7 +35,9 @@ class PDFGenerator:
         doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=14*mm, leftMargin=14*mm, topMargin=12*mm, bottomMargin=16*mm)
         story = []
         header_cells = []
-        logo_path = BASE_DIR / invoice.company.logo_path if invoice.company.logo_path else None
+        logo_path = Path(invoice.company.logo_path) if invoice.company.logo_path else None
+        if logo_path and not logo_path.is_absolute():
+            logo_path = BASE_DIR.parent / logo_path
         if logo_path and logo_path.exists():
             header_cells.append(Image(str(logo_path), width=28*mm, height=20*mm))
         else:

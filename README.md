@@ -1,56 +1,48 @@
-# GST Invoice Generator
+# GST Invoice Generator SaaS
 
-A production-ready Python invoice generator for Indian GST billing. The project now includes a Bootstrap 5 web dashboard while preserving the original Tkinter desktop launcher and shared invoice, database and PDF services.
+A multi-tenant Flask SaaS application for Indian GST invoicing. Multiple companies can register, complete an isolated company profile, manage their own customers, generate independently numbered invoices, and download branded ReportLab PDFs.
 
-## Current Architecture
+## Architecture
 
-- `main.py` launches the original Tkinter application from `gst_invoice/main.py`.
-- `app.py` provides the modern Flask + Bootstrap 5 web dashboard.
-- `gst_invoice/models.py` contains dataclasses for company, customer, invoice and invoice items.
-- `gst_invoice/invoice_generator.py` calculates taxable values, CGST, SGST, IGST and grand totals.
-- `gst_invoice/pdf_generator.py` exports professional PDF invoices with ReportLab and a minimal fallback writer.
-- `gst_invoice/database.py` persists company profiles, customers, invoices and invoice items in SQLite.
-- `gst_invoice/validators.py` centralizes GSTIN, date, phone, email, GST rate and numeric validation.
-- `templates/` contains the dashboard and invoice preview pages.
-- `static/` contains custom styling and real-time invoice-calculation JavaScript.
+`User -> Company -> Customers/Invoices/InvoiceItems`
 
-## Improvement Opportunities Addressed
+- One company has many users, customers, and invoices.
+- All dashboard, customer, invoice, PDF, and delete routes scope queries by `current_user.company_id`.
+- Passwords are hashed with Werkzeug and sessions are managed by Flask-Login.
+- CSRF tokens are validated on every POST.
+- Logo uploads are restricted to PNG/JPG/JPEG under `uploads/company_logos/` with a configurable max request size.
 
-- Added a responsive Bootstrap 5 business UI with card sections, dashboard summary and invoice history.
-- Added company branding fields including logo upload support.
-- Added professional customer, invoice and editable product/service inputs.
-- Added unlimited product rows with remove-row support and browser-side real-time totals.
-- Added GST rate dropdowns for 0%, 5%, 12%, 18% and 28%.
-- Centralized validation to prevent invalid GSTINs, dates, tax percentages, negative prices and invalid quantities.
-- Added professional invoice preview with print and PDF download actions.
-- Preserved the existing SQLite database, calculation engine and PDF generator.
+## Project Structure
+
+- `app.py` - Flask SaaS app, authentication, company wizard, customers, invoices, tenant scoping.
+- `gst_invoice/models.py` - SQLAlchemy models for Users, Companies, Customers, Invoices, InvoiceItems.
+- `gst_invoice/invoice_generator.py` - GST calculation engine preserved from the original project.
+- `gst_invoice/pdf_generator.py` - ReportLab PDF generation with company-specific branding.
+- `templates/` - Bootstrap 5 SaaS UI.
+- `static/js/invoice.js` - live invoice preview and browser-side calculations.
+- `uploads/company_logos/` - runtime company logos.
+- `uploads/invoices/` - generated PDF invoices.
+- `Procfile`, `.env.example`, `requirements.txt` - deployment readiness for Render, Railway, and AWS.
 
 ## Setup
 
 ```bash
-python3.12 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-## Run the Web App
-
-```bash
+cp .env.example .env
 flask --app app run
 ```
 
-Then open <http://127.0.0.1:5000>.
+Open <http://127.0.0.1:5000>, register a company account, complete the company profile, add customers, and create invoices.
 
-## Run the Desktop App
+## Environment Variables
 
-```bash
-python main.py
-```
+- `SECRET_KEY` - Flask secret key.
+- `DATABASE_URL` - SQLAlchemy database URL. Defaults to SQLite in `instance/`.
+- `SESSION_COOKIE_SECURE` - set `true` behind HTTPS.
+- `MAX_CONTENT_LENGTH` - max request/upload size in bytes.
 
-## Create a Sample PDF
+## Deployment
 
-```bash
-python scripts/create_sample_invoice.py
-```
-
-Generated PDFs are written under `gst_invoice/invoices/` and the SQLite database is created under `gst_invoice/database/`.
+Use `gunicorn app:app` (already defined in `Procfile`). Configure environment variables in Render, Railway, or AWS and mount persistent storage for `uploads/` if using SQLite/local PDF storage.

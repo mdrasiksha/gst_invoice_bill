@@ -1,47 +1,64 @@
-CREATE TABLE IF NOT EXISTS company (
+CREATE TABLE IF NOT EXISTS companies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    seller_name TEXT NOT NULL,
+    company_name TEXT NOT NULL,
     gstin TEXT NOT NULL,
     address TEXT NOT NULL,
-    phone TEXT,
-    email TEXT,
+    city TEXT DEFAULT '',
+    state TEXT DEFAULT '',
+    pin_code TEXT DEFAULT '',
+    phone TEXT DEFAULT '',
+    email TEXT DEFAULT '',
     website TEXT DEFAULT '',
+    logo_path TEXT DEFAULT '',
     bank_name TEXT DEFAULT '',
     account_number TEXT DEFAULT '',
-    ifsc_code TEXT DEFAULT '',
+    ifsc TEXT DEFAULT '',
     upi_id TEXT DEFAULT '',
-    state_code TEXT,
-    logo_path TEXT
+    invoice_prefix TEXT DEFAULT 'INV',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL,
+    username TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS customers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL,
     customer_name TEXT NOT NULL,
-    gstin TEXT,
+    gstin TEXT DEFAULT '',
     address TEXT NOT NULL,
-    phone TEXT,
+    phone TEXT DEFAULT '',
     email TEXT DEFAULT '',
-    state_code TEXT
+    state_code TEXT DEFAULT '',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS invoices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    invoice_number TEXT NOT NULL UNIQUE,
-    invoice_date TEXT NOT NULL,
-    due_date TEXT NOT NULL,
-    place_of_supply TEXT NOT NULL,
-    state_code TEXT NOT NULL,
     company_id INTEGER NOT NULL,
     customer_id INTEGER NOT NULL,
-    taxable_amount REAL NOT NULL,
+    invoice_number TEXT NOT NULL,
+    invoice_date DATE NOT NULL,
+    due_date DATE NOT NULL,
+    place_of_supply TEXT DEFAULT '',
+    state_code TEXT DEFAULT '',
+    taxable_amount REAL DEFAULT 0,
     discount_total REAL DEFAULT 0,
-    cgst REAL NOT NULL,
-    sgst REAL NOT NULL,
-    igst REAL NOT NULL,
+    cgst REAL DEFAULT 0,
+    sgst REAL DEFAULT 0,
+    igst REAL DEFAULT 0,
     round_off REAL DEFAULT 0,
-    grand_total REAL NOT NULL,
-    pdf_path TEXT,
+    grand_total REAL DEFAULT 0,
+    pdf_path TEXT DEFAULT '',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(company_id) REFERENCES company(id),
-    FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    UNIQUE(company_id, invoice_number),
+    FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE,
+    FOREIGN KEY(customer_id) REFERENCES customers(id)
 );
 CREATE TABLE IF NOT EXISTS invoice_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,8 +70,8 @@ CREATE TABLE IF NOT EXISTS invoice_items (
     gst_percentage REAL NOT NULL,
     discount_percentage REAL DEFAULT 0,
     discount_amount REAL DEFAULT 0,
-    taxable_value REAL NOT NULL,
-    gst_amount REAL NOT NULL,
-    total_amount REAL NOT NULL,
+    taxable_value REAL DEFAULT 0,
+    gst_amount REAL DEFAULT 0,
+    total_amount REAL DEFAULT 0,
     FOREIGN KEY(invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
 );
