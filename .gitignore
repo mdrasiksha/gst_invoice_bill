@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+gst_invoice/database/*.db
+gst_invoice/invoices/*.pdf
+gst_invoice/assets/*.png
+gst_invoice/assets/*.jpg
+gst_invoice/assets/*.jpeg
