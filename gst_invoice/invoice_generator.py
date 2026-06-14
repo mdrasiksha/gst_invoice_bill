@@ -3,14 +3,17 @@ from __future__ import annotations
 
 from .models import Invoice
 from .utils import money
+from .validators import ALLOWED_GST_RATES
 
 
 def calculate_invoice(invoice: Invoice) -> Invoice:
     """Calculate item values and GST split according to Indian intra/inter-state rules."""
     taxable = gst_total = 0.0
     for item in invoice.items:
-        if item.quantity <= 0 or item.unit_price < 0 or item.gst_percentage < 0:
-            raise ValueError("Quantity must be positive and prices/GST rates cannot be negative.")
+        if item.quantity <= 0 or item.unit_price < 0:
+            raise ValueError("Quantity must be positive and prices cannot be negative.")
+        if item.gst_percentage not in ALLOWED_GST_RATES:
+            raise ValueError("GST rate must be one of 0%, 5%, 12%, 18% or 28%.")
         item.calculate()
         taxable += item.taxable_value
         gst_total += item.gst_amount
