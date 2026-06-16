@@ -16,7 +16,7 @@
   }
   function updateCustomer(){
     const data=customerData();
-    [['previewCustomer',data.name],['previewShipCustomer',data.name],['previewCustomerGstin',`GSTIN: ${data.gstin}`],['previewShipGstin',`GSTIN: ${data.gstin}`],['previewCustomerAddress',data.address],['previewShipAddress',data.address],['previewCustomerPhone',data.phone?`Phone: ${data.phone}`:'']].forEach(([id,val])=>{const el=document.getElementById(id); if(el)el.textContent=val;});
+    [['previewCustomer',data.name],['previewCustomerGstin',`GSTIN: ${data.gstin}`],['previewCustomerAddress',data.address],['previewCustomerPhone',data.phone?`Phone: ${data.phone}`:'']].forEach(([id,val])=>{const el=document.getElementById(id); if(el)el.textContent=val;});
   }
   function updateCustomerMode(){
     const existing=document.getElementById('existingCustomerFields'); const newer=document.getElementById('newCustomerFields'); const name=document.getElementById('newCustomerName');

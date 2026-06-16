@@ -207,7 +207,7 @@ def create_invoice():
     if request.method == "POST":
         wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest" or "application/json" in request.headers.get("Accept", "")
         try:
-            customer_type = request.form.get("customer_type", "existing")
+            customer_type = request.form.get("customer_type", "new")
             if customer_type == "new":
                 if not request.form.get("new_customer_name", "").strip():
                     raise ValueError("Customer Name is required for a new customer.")

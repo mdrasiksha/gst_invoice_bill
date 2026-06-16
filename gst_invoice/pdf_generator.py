@@ -37,6 +37,7 @@ class PDFGenerator:
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.pdfgen.canvas import Canvas
+        from reportlab.lib.utils import ImageReader
         from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
         font = "Helvetica"
@@ -69,23 +70,53 @@ class PDFGenerator:
             if not value: return None
             p = Path(value)
             return p if p.is_absolute() else BASE_DIR.parent / p
+        def fitted_image(path_value: Path, box_width, box_height) -> Image:
+            """Return a ReportLab image scaled proportionally inside a fixed box."""
+            reader = ImageReader(str(path_value))
+            width, height = reader.getSize()
+            if not width or not height:
+                raise ValueError("Invalid image dimensions")
+            scale = min(box_width / width, box_height / height)
+            return Image(str(path_value), width=width * scale, height=height * scale)
 
         doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=12*mm, leftMargin=12*mm, topMargin=13*mm, bottomMargin=18*mm)
         story = []
         logo_path = image_path(invoice.company.logo_path)
-        logo = Image(str(logo_path), width=28*mm, height=20*mm, kind="proportional") if logo_path and logo_path.exists() else Paragraph("<b>LOGO</b>", styles["Section"])
-        company = Paragraph(f"<b>{esc(invoice.company.company_name)}</b><br/><font size='8'>Powered by Smart GST · Create professional GST invoices in under 30 seconds.<br/>GSTIN: {esc(invoice.company.gstin)}<br/>{esc(company_address())}<br/>Phone: {esc(invoice.company.phone)} &nbsp; Email: {esc(invoice.company.email)}</font>", styles["Company"])
+        logo_box = 30*mm
+        if logo_path and logo_path.exists():
+            try:
+                logo_content = fitted_image(logo_path, logo_box, logo_box)
+            except Exception:
+                logger.warning("Skipping invalid company logo", exc_info=True, extra={"company_id": invoice.company_id})
+                logo_content = Paragraph("<b>LOGO</b>", styles["Section"])
+        else:
+            logo_content = Paragraph("<b>LOGO</b>", styles["Section"])
+        logo = Table(
+            [[logo_content]],
+            colWidths=[logo_box],
+            rowHeights=[logo_box],
+            style=[
+                ("BOX", (0,0), (-1,-1), 0.35, border),
+                ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+                ("ALIGN", (0,0), (-1,-1), "CENTER"),
+                ("LEFTPADDING", (0,0), (-1,-1), 0),
+                ("RIGHTPADDING", (0,0), (-1,-1), 0),
+                ("TOPPADDING", (0,0), (-1,-1), 0),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 0),
+            ],
+        )
+        company = Paragraph(f"<b>{esc(invoice.company.company_name)}</b><br/><font size='8'>GSTIN: {esc(invoice.company.gstin)}<br/>{esc(company_address())}<br/>Phone: {esc(invoice.company.phone)} &nbsp; Email: {esc(invoice.company.email)}</font>", styles["Company"])
         badge = Table([[Paragraph("TAX INVOICE", styles["Badge"])]], colWidths=[38*mm], rowHeights=[12*mm], style=[("BACKGROUND", (0,0), (-1,-1), blue), ("VALIGN", (0,0), (-1,-1), "MIDDLE")])
-        header = Table([[logo, company, badge]], colWidths=[31*mm, 109*mm, 42*mm])
+        header = Table([[logo, company, badge]], colWidths=[36*mm, 104*mm, 42*mm])
         header.setStyle(TableStyle([("BOX", (0,0), (-1,-1), 0.8, border), ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]))
         story += [header, Spacer(1, 4*mm)]
 
         meta_rows = [["Invoice Number", invoice.invoice_number, "Invoice Date", invoice.invoice_date.strftime("%d-%m-%Y")], ["Due Date", invoice.due_date.strftime("%d-%m-%Y"), "Place of Supply", invoice.place_of_supply or invoice.company.state], ["Supply State Code", invoice.state_code, "Tax Type", "CGST + SGST" if invoice.is_intrastate else "IGST"]]
         meta = Table(meta_rows, colWidths=[35*mm, 56*mm, 35*mm, 56*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("BACKGROUND", (0,0), (0,-1), light), ("BACKGROUND", (2,0), (2,-1), light), ("FONTNAME", (0,0), (-1,-1), font), ("FONTNAME", (0,0), (0,-1), bold), ("FONTNAME", (2,0), (2,-1), bold), ("FONTSIZE", (0,0), (-1,-1), 8)])
         story += [meta, Spacer(1, 4*mm)]
-        bill = f"<b>Bill To</b><br/>{esc(invoice.customer.customer_name)}<br/>GSTIN: {esc(invoice.customer.gstin or 'Unregistered')}<br/>{esc(invoice.customer.address)}<br/>Phone: {esc(invoice.customer.phone)}"
-        ship = f"<b>Ship To</b><br/>{esc(invoice.customer.customer_name)}<br/>GSTIN: {esc(invoice.customer.gstin or 'Unregistered')}<br/>{esc(invoice.customer.address)}"
-        story += [Table([[Paragraph(bill, styles["Small"]), Paragraph(ship, styles["Small"])]], colWidths=[91*mm, 91*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 8), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]), Spacer(1, 4*mm)]
+        customer_address = ", ".join([p for p in [invoice.customer.address, invoice.customer.city, invoice.customer.state, invoice.customer.pin_code] if p])
+        bill = f"<b>Bill To</b><br/>{esc(invoice.customer.customer_name)}<br/>GSTIN: {esc(invoice.customer.gstin or 'Unregistered')}<br/>{esc(customer_address)}<br/>Phone: {esc(invoice.customer.phone)}<br/>Email: {esc(invoice.customer.email)}"
+        story += [Table([[Paragraph(bill, styles["Small"])]], colWidths=[182*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 8), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]), Spacer(1, 4*mm)]
 
         data = [["Sr No", "Description", "HSN/SAC", "Qty", "Unit Price", "GST %", "Amount"]]
         for idx, item in enumerate(invoice.items, 1):
@@ -100,7 +131,7 @@ class PDFGenerator:
             summary_rows += [[f"CGST ({rate:g}%)", money(invoice.cgst)], [f"SGST ({rate:g}%)", money(invoice.sgst)], ["IGST (0%)", money(0)]]
         else:
             rate = max((i.gst_percentage for i in invoice.items), default=0)
-            summary_rows += [[f"IGST ({rate:g}%)", money(invoice.igst)]]
+            summary_rows += [["CGST (0%)", money(0)], ["SGST (0%)", money(0)], [f"IGST ({rate:g}%)", money(invoice.igst)]]
         summary_rows += [["Round Off", money(invoice.round_off)], ["Grand Total", money(invoice.grand_total)]]
         summary = Table(summary_rows, colWidths=[44*mm, 38*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("ALIGN", (1,0), (1,-1), "RIGHT"), ("FONTNAME", (0,0), (-1,-1), font), ("FONTNAME", (0,0), (0,-1), bold), ("BACKGROUND", (0,-1), (-1,-1), accent), ("TEXTCOLOR", (0,-1), (-1,-1), colors.white), ("FONTNAME", (0,-1), (-1,-1), bold), ("FONTSIZE", (0,0), (-1,-1), 8.5)])
         words = Paragraph(f"<b>Amount in Words:</b><br/>{esc(amount_to_words(invoice.grand_total))}", styles["Small"])
