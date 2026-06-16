@@ -7,21 +7,17 @@ from .validators import ALLOWED_GST_RATES
 
 
 def calculate_invoice(invoice: Invoice) -> Invoice:
-    """Calculate discounts, taxable values and Indian GST split."""
-    taxable = gst_total = discount_total = 0.0
+    """Calculate taxable values and Indian GST split."""
+    taxable = gst_total = 0.0
     for item in invoice.items:
-        if item.quantity <= 0 or item.unit_price < 0 or item.discount_percentage < 0:
-            raise ValueError("Quantity must be positive and prices/discounts cannot be negative.")
-        if item.discount_percentage > 100:
-            raise ValueError("Discount cannot be greater than 100%.")
+        if item.quantity <= 0 or item.unit_price < 0:
+            raise ValueError("Quantity must be positive and prices cannot be negative.")
         if item.gst_percentage not in ALLOWED_GST_RATES:
             raise ValueError("GST rate must be one of 0%, 5%, 12%, 18% or 28%.")
         item.calculate()
         taxable += item.taxable_value
         gst_total += item.gst_amount
-        discount_total += item.discount_amount
     invoice.taxable_amount = float(money(taxable))
-    invoice.discount_total = float(money(discount_total))
     if invoice.is_intrastate:
         invoice.cgst = float(money(gst_total / 2))
         invoice.sgst = float(money(gst_total / 2))

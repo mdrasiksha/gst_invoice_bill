@@ -1,4 +1,4 @@
-# GST Invoice Generator SaaS
+# Smart GST
 
 A multi-tenant Flask SaaS application for Indian GST invoicing. Multiple companies can register, complete an isolated company profile, manage their own customers, generate independently numbered invoices, and download branded ReportLab PDFs.
 

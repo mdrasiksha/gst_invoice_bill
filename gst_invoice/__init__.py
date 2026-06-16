@@ -1,1 +1,1 @@
-"""GST Invoice Generator desktop application."""
+"""Smart GST desktop application."""

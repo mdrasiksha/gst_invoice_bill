@@ -74,7 +74,7 @@ class PDFGenerator:
         story = []
         logo_path = image_path(invoice.company.logo_path)
         logo = Image(str(logo_path), width=28*mm, height=20*mm, kind="proportional") if logo_path and logo_path.exists() else Paragraph("<b>LOGO</b>", styles["Section"])
-        company = Paragraph(f"<b>{esc(invoice.company.company_name)}</b><br/><font size='8'>GSTIN: {esc(invoice.company.gstin)}<br/>{esc(company_address())}<br/>Phone: {esc(invoice.company.phone)} &nbsp; Email: {esc(invoice.company.email)}</font>", styles["Company"])
+        company = Paragraph(f"<b>{esc(invoice.company.company_name)}</b><br/><font size='8'>Powered by Smart GST · Create professional GST invoices in under 30 seconds.<br/>GSTIN: {esc(invoice.company.gstin)}<br/>{esc(company_address())}<br/>Phone: {esc(invoice.company.phone)} &nbsp; Email: {esc(invoice.company.email)}</font>", styles["Company"])
         badge = Table([[Paragraph("TAX INVOICE", styles["Badge"])]], colWidths=[38*mm], rowHeights=[12*mm], style=[("BACKGROUND", (0,0), (-1,-1), blue), ("VALIGN", (0,0), (-1,-1), "MIDDLE")])
         header = Table([[logo, company, badge]], colWidths=[31*mm, 109*mm, 42*mm])
         header.setStyle(TableStyle([("BOX", (0,0), (-1,-1), 0.8, border), ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]))
@@ -87,10 +87,10 @@ class PDFGenerator:
         ship = f"<b>Ship To</b><br/>{esc(invoice.customer.customer_name)}<br/>GSTIN: {esc(invoice.customer.gstin or 'Unregistered')}<br/>{esc(invoice.customer.address)}"
         story += [Table([[Paragraph(bill, styles["Small"]), Paragraph(ship, styles["Small"])]], colWidths=[91*mm, 91*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 8), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]), Spacer(1, 4*mm)]
 
-        data = [["Sr No", "Description", "HSN/SAC", "Qty", "Unit Price", "GST %", "Discount %", "Amount"]]
+        data = [["Sr No", "Description", "HSN/SAC", "Qty", "Unit Price", "GST %", "Amount"]]
         for idx, item in enumerate(invoice.items, 1):
-            data.append([str(idx), Paragraph(esc(item.item_name), styles["Cell"]), Paragraph(esc(item.hsn_sac or "-"), styles["Cell"]), f"{item.quantity:g}", money(item.unit_price), f"{item.gst_percentage:g}%", f"{item.discount_percentage:g}%", money(item.total_amount)])
-        items = Table(data, repeatRows=1, colWidths=[10*mm, 55*mm, 20*mm, 13*mm, 25*mm, 17*mm, 21*mm, 21*mm])
+            data.append([str(idx), Paragraph(esc(item.item_name), styles["Cell"]), Paragraph(esc(item.hsn_sac or "-"), styles["Cell"]), f"{item.quantity:g}", money(item.unit_price), f"{item.gst_percentage:g}%", money(item.total_amount)])
+        items = Table(data, repeatRows=1, colWidths=[10*mm, 68*mm, 22*mm, 15*mm, 28*mm, 18*mm, 21*mm])
         items.setStyle(TableStyle([("GRID", (0,0), (-1,-1), 0.4, border), ("BACKGROUND", (0,0), (-1,0), blue), ("TEXTCOLOR", (0,0), (-1,0), colors.white), ("FONTNAME", (0,0), (-1,0), bold), ("FONTNAME", (0,1), (-1,-1), font), ("FONTSIZE", (0,0), (-1,-1), 7.5), ("ALIGN", (0,0), (0,-1), "CENTER"), ("ALIGN", (3,1), (-1,-1), "RIGHT"), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 4), ("RIGHTPADDING", (0,0), (-1,-1), 4), ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5), ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#FAFCFF")])]))
         story += [items, Spacer(1, 4*mm)]
 
@@ -121,7 +121,7 @@ class PDFGenerator:
         sig = Table([["Customer Signature", "Company Seal", f"For {invoice.company.company_name}\n\nAuthorized Signature"]], colWidths=[60*mm, 52*mm, 70*mm], rowHeights=[24*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "BOTTOM"), ("ALIGN", (0,0), (-1,-1), "CENTER"), ("FONTNAME", (0,0), (-1,-1), bold), ("FONTSIZE", (0,0), (-1,-1), 8)])
         story.append(KeepTogether(sig))
         def page_footer(canvas: Canvas, _doc):
-            canvas.saveState(); canvas.setFont(font, 8); canvas.setFillColor(colors.HexColor("#64748B")); canvas.drawString(12*mm, 8*mm, f"{invoice.company.company_name} · {invoice.invoice_number}"); canvas.drawRightString(198*mm, 8*mm, f"Page {canvas.getPageNumber()}"); canvas.restoreState()
+            canvas.saveState(); canvas.setFont(font, 8); canvas.setFillColor(colors.HexColor("#64748B")); canvas.drawString(12*mm, 8*mm, f"Smart GST · {invoice.company.company_name} · {invoice.invoice_number}"); canvas.drawRightString(198*mm, 8*mm, f"Page {canvas.getPageNumber()}"); canvas.restoreState()
         doc.build(story, onFirstPage=page_footer, onLaterPages=page_footer)
 
     def _generate_minimal_pdf(self, invoice: Invoice, path: Path) -> None:
