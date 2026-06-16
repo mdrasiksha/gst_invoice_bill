@@ -1,4 +1,4 @@
-"""Launcher for GST Invoice Generator."""
+"""Launcher for Smart GST."""
 from gst_invoice.main import main
 
 if __name__ == "__main__":

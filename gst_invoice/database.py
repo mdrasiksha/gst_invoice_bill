@@ -1,4 +1,4 @@
-"""SQLite persistence layer for the GST Invoice Generator."""
+"""SQLite persistence layer for the Smart GST."""
 from __future__ import annotations
 
 import sqlite3
@@ -38,12 +38,11 @@ class Database:
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(customers)")}
         if "email" not in columns:
             conn.execute("ALTER TABLE customers ADD COLUMN email TEXT DEFAULT ''")
-        columns = {r["name"] for r in conn.execute("PRAGMA table_info(invoice_items)")}
-        for name in ("discount_percentage", "discount_amount"):
+        for name in ("city", "state", "pin_code"):
             if name not in columns:
-                conn.execute(f"ALTER TABLE invoice_items ADD COLUMN {name} REAL DEFAULT 0")
+                conn.execute(f"ALTER TABLE customers ADD COLUMN {name} TEXT DEFAULT ''")
         columns = {r["name"] for r in conn.execute("PRAGMA table_info(invoices)")}
-        for name in ("discount_total", "round_off"):
+        for name in ("round_off",):
             if name not in columns:
                 conn.execute(f"ALTER TABLE invoices ADD COLUMN {name} REAL DEFAULT 0")
 
@@ -93,14 +92,14 @@ class Database:
 
     def save_invoice(self, invoice: Invoice) -> int:
         with self.connect() as conn:
-            cur = conn.execute("INSERT INTO customers (customer_name, gstin, address, phone, email, state_code) VALUES (?, ?, ?, ?, ?, ?)", (invoice.customer.customer_name, invoice.customer.gstin, invoice.customer.address, invoice.customer.phone, invoice.customer.email, invoice.customer.state_code))
+            cur = conn.execute("INSERT INTO customers (customer_name, gstin, address, city, state, pin_code, phone, email, state_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (invoice.customer.customer_name, invoice.customer.gstin, invoice.customer.address, invoice.customer.city, invoice.customer.state, invoice.customer.pin_code, invoice.customer.phone, invoice.customer.email, invoice.customer.state_code))
             customer_id = int(cur.lastrowid)
-            cur = conn.execute("""INSERT INTO invoices (invoice_number, invoice_date, due_date, place_of_supply, state_code, company_id, customer_id, taxable_amount, discount_total, cgst, sgst, igst, round_off, grand_total, pdf_path)
-                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (invoice.invoice_number, invoice.invoice_date.isoformat(), invoice.due_date.isoformat(), invoice.place_of_supply, invoice.state_code, invoice.company.id, customer_id, invoice.taxable_amount, invoice.discount_total, invoice.cgst, invoice.sgst, invoice.igst, invoice.round_off, invoice.grand_total, invoice.pdf_path))
+            cur = conn.execute("""INSERT INTO invoices (invoice_number, invoice_date, due_date, place_of_supply, state_code, company_id, customer_id, taxable_amount, cgst, sgst, igst, round_off, grand_total, pdf_path)
+                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (invoice.invoice_number, invoice.invoice_date.isoformat(), invoice.due_date.isoformat(), invoice.place_of_supply, invoice.state_code, invoice.company.id, customer_id, invoice.taxable_amount, invoice.cgst, invoice.sgst, invoice.igst, invoice.round_off, invoice.grand_total, invoice.pdf_path))
             invoice_id = int(cur.lastrowid)
             for item in invoice.items:
-                conn.execute("""INSERT INTO invoice_items (invoice_id, item_name, hsn_sac, quantity, unit_price, gst_percentage, discount_percentage, discount_amount, taxable_value, gst_amount, total_amount)
-                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", (invoice_id, item.item_name, item.hsn_sac, item.quantity, item.unit_price, item.gst_percentage, item.discount_percentage, item.discount_amount, item.taxable_value, item.gst_amount, item.total_amount))
+                conn.execute("""INSERT INTO invoice_items (invoice_id, item_name, hsn_sac, quantity, unit_price, gst_percentage, taxable_value, gst_amount, total_amount)
+                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""", (invoice_id, item.item_name, item.hsn_sac, item.quantity, item.unit_price, item.gst_percentage, item.taxable_value, item.gst_amount, item.total_amount))
             return invoice_id
 
     def list_invoices(self, query: str = "") -> list[sqlite3.Row]:
@@ -122,9 +121,9 @@ class Database:
             cust = conn.execute("SELECT * FROM customers WHERE id=?", (inv["customer_id"],)).fetchone()
             rows = conn.execute("SELECT * FROM invoice_items WHERE invoice_id=?", (inv["id"],)).fetchall()
         company = self._company_from_row(comp)
-        customer = Customer(id=cust["id"], customer_name=cust["customer_name"], gstin=cust["gstin"] or "", address=cust["address"], phone=cust["phone"] or "", email=cust["email"] or "", state_code=cust["state_code"] or "")
-        items = [InvoiceItem(id=r["id"], item_name=r["item_name"], hsn_sac=r["hsn_sac"], quantity=r["quantity"], unit_price=r["unit_price"], gst_percentage=r["gst_percentage"], discount_percentage=r["discount_percentage"] or 0, discount_amount=r["discount_amount"] or 0, taxable_value=r["taxable_value"], gst_amount=r["gst_amount"], total_amount=r["total_amount"]) for r in rows]
-        return Invoice(id=inv["id"], invoice_number=inv["invoice_number"], invoice_date=date.fromisoformat(inv["invoice_date"]), due_date=date.fromisoformat(inv["due_date"]), place_of_supply=inv["place_of_supply"], state_code=inv["state_code"], company=company, customer=customer, items=items, taxable_amount=inv["taxable_amount"], discount_total=inv["discount_total"] or 0, cgst=inv["cgst"], sgst=inv["sgst"], igst=inv["igst"], round_off=inv["round_off"] or 0, grand_total=inv["grand_total"], pdf_path=inv["pdf_path"] or "")
+        customer = Customer(id=cust["id"], customer_name=cust["customer_name"], gstin=cust["gstin"] or "", address=cust["address"], city=cust["city"] or "", state=cust["state"] or "", pin_code=cust["pin_code"] or "", phone=cust["phone"] or "", email=cust["email"] or "", state_code=cust["state_code"] or "")
+        items = [InvoiceItem(id=r["id"], item_name=r["item_name"], hsn_sac=r["hsn_sac"], quantity=r["quantity"], unit_price=r["unit_price"], gst_percentage=r["gst_percentage"], taxable_value=r["taxable_value"], gst_amount=r["gst_amount"], total_amount=r["total_amount"]) for r in rows]
+        return Invoice(id=inv["id"], invoice_number=inv["invoice_number"], invoice_date=date.fromisoformat(inv["invoice_date"]), due_date=date.fromisoformat(inv["due_date"]), place_of_supply=inv["place_of_supply"], state_code=inv["state_code"], company=company, customer=customer, items=items, taxable_amount=inv["taxable_amount"], cgst=inv["cgst"], sgst=inv["sgst"], igst=inv["igst"], round_off=inv["round_off"] or 0, grand_total=inv["grand_total"], pdf_path=inv["pdf_path"] or "")
 
     def delete_invoice(self, invoice_number: str) -> None:
         with self.connect() as conn:

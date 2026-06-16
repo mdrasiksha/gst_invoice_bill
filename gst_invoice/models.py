@@ -1,4 +1,4 @@
-"""SQLAlchemy models for the multi-tenant GST Invoice SaaS."""
+"""SQLAlchemy models for the Smart GST invoice app."""
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -73,7 +73,10 @@ class Customer(db.Model):
     company_id = db.Column(db.Integer, db.ForeignKey("companies.id"), nullable=False, index=True)
     customer_name = db.Column(db.String(180), nullable=False)
     gstin = db.Column(db.String(15), default="")
-    address = db.Column(db.Text, nullable=False)
+    address = db.Column(db.Text, nullable=False, default="")
+    city = db.Column(db.String(80), default="")
+    state = db.Column(db.String(80), default="")
+    pin_code = db.Column(db.String(12), default="")
     phone = db.Column(db.String(30), default="")
     email = db.Column(db.String(180), default="")
     state_code = db.Column(db.String(2), default="")
@@ -94,7 +97,6 @@ class Invoice(db.Model):
     place_of_supply = db.Column(db.String(120), default="")
     state_code = db.Column(db.String(2), default="")
     taxable_amount = db.Column(db.Float, default=0)
-    discount_total = db.Column(db.Float, default=0)
     cgst = db.Column(db.Float, default=0)
     sgst = db.Column(db.Float, default=0)
     igst = db.Column(db.Float, default=0)
@@ -118,15 +120,12 @@ class InvoiceItem(db.Model):
     quantity = db.Column(db.Float, nullable=False)
     unit_price = db.Column(db.Float, nullable=False)
     gst_percentage = db.Column(db.Float, nullable=False)
-    discount_percentage = db.Column(db.Float, default=0)
-    discount_amount = db.Column(db.Float, default=0)
     taxable_value = db.Column(db.Float, default=0)
     gst_amount = db.Column(db.Float, default=0)
     total_amount = db.Column(db.Float, default=0)
     invoice = db.relationship("Invoice", back_populates="items")
     def calculate(self):
         gross = round(self.quantity * self.unit_price, 2)
-        self.discount_amount = round(gross * self.discount_percentage / 100, 2)
-        self.taxable_value = round(gross - self.discount_amount, 2)
+        self.taxable_value = gross
         self.gst_amount = round(self.taxable_value * self.gst_percentage / 100, 2)
         self.total_amount = round(self.taxable_value + self.gst_amount, 2)

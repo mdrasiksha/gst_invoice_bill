@@ -74,6 +74,10 @@ def ensure_database_columns() -> None:
         company_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(companies)")}
         if "upi_qr_image_url" not in company_cols:
             conn.exec_driver_sql("ALTER TABLE companies ADD COLUMN upi_qr_image_url VARCHAR(300) DEFAULT ''")
+        customer_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(customers)")}
+        for name, ddl in {"city": "VARCHAR(80) DEFAULT ''", "state": "VARCHAR(80) DEFAULT ''", "pin_code": "VARCHAR(12) DEFAULT ''"}.items():
+            if name not in customer_cols:
+                conn.exec_driver_sql(f"ALTER TABLE customers ADD COLUMN {name} {ddl}")
 
 
 app = create_app()
@@ -182,7 +186,7 @@ def customer_form(customer_id=None):
     customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first() if customer_id else Customer(company_id=current_user.company_id)
     if customer_id and not customer: abort(404)
     if request.method == "POST":
-        customer.customer_name=request.form.get("customer_name","").strip(); customer.gstin=request.form.get("gstin","").strip().upper(); customer.address=request.form.get("address","").strip(); customer.phone=request.form.get("phone","").strip(); customer.email=request.form.get("email","").strip(); customer.state_code=request.form.get("state_code","").strip() or state_code_from_gstin(customer.gstin) or ""
+        customer.customer_name=request.form.get("customer_name","").strip(); customer.gstin=request.form.get("gstin","").strip().upper(); customer.address=request.form.get("address","").strip(); customer.city=request.form.get("city","").strip(); customer.state=request.form.get("state","").strip(); customer.pin_code=request.form.get("pin_code","").strip(); customer.phone=request.form.get("phone","").strip(); customer.email=request.form.get("email","").strip(); customer.state_code=request.form.get("state_code","").strip() or state_code_from_gstin(customer.gstin) or ""
         try: validate_customer(customer); db.session.add(customer); db.session.commit(); flash("Customer saved.", "success"); return redirect(url_for("customers"))
         except Exception as exc: db.session.rollback(); flash(str(exc), "danger")
     return render_template("customer_form.html", customer=customer)
@@ -203,16 +207,34 @@ def create_invoice():
     if request.method == "POST":
         wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest" or "application/json" in request.headers.get("Accept", "")
         try:
-            customer_id = request.form.get("customer_id", type=int)
-            if not customer_id:
-                raise ValueError("Select a customer before generating the PDF.")
-            customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first_or_404()
+            customer_type = request.form.get("customer_type", "existing")
+            if customer_type == "new":
+                if not request.form.get("new_customer_name", "").strip():
+                    raise ValueError("Customer Name is required for a new customer.")
+                customer = Customer(
+                    company_id=current_user.company_id,
+                    customer_name=request.form.get("new_customer_name", "").strip(),
+                    gstin=request.form.get("new_customer_gstin", "").strip().upper(),
+                    phone=request.form.get("new_customer_phone", "").strip(),
+                    email=request.form.get("new_customer_email", "").strip(),
+                    address=request.form.get("new_customer_address", "").strip(),
+                    city=request.form.get("new_customer_city", "").strip(),
+                    state=request.form.get("new_customer_state", "").strip(),
+                    pin_code=request.form.get("new_customer_pincode", "").strip(),
+                )
+                customer.state_code = state_code_from_gstin(customer.gstin) or request.form.get("state_code", "").strip() or current_user.company.state_code
+                db.session.add(customer)
+            else:
+                customer_id = request.form.get("customer_id", type=int)
+                if not customer_id:
+                    raise ValueError("Select a customer before generating the PDF.")
+                customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first_or_404()
             inv=Invoice(company=current_user.company, customer=customer, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=parse_required_date(request.form.get("invoice_date"),"Invoice date"), due_date=parse_required_date(request.form.get("due_date"),"Due date"), place_of_supply=request.form.get("place_of_supply","").strip(), state_code=request.form.get("state_code","").strip() or customer.state_code or current_user.company.state_code)
             setattr(inv, "terms", request.form.get("terms", "").strip())
-            hsn_values=request.form.getlist("hsn_sac[]"); qty_values=request.form.getlist("quantity[]"); price_values=request.form.getlist("unit_price[]"); gst_values=request.form.getlist("gst_percentage[]"); discount_values=request.form.getlist("discount_percentage[]")
+            hsn_values=request.form.getlist("hsn_sac[]"); qty_values=request.form.getlist("quantity[]"); price_values=request.form.getlist("unit_price[]"); gst_values=request.form.getlist("gst_percentage[]")
             for idx,name in enumerate(request.form.getlist("item_name[]")):
                 if not name.strip(): continue
-                item=InvoiceItem(item_name=name.strip(), hsn_sac=hsn_values[idx].strip() if idx < len(hsn_values) else "", quantity=parse_positive_float(qty_values[idx],"Quantity"), unit_price=parse_positive_float(price_values[idx],"Unit price",allow_zero=True), gst_percentage=parse_gst_rate(gst_values[idx]), discount_percentage=parse_positive_float(discount_values[idx],"Discount",allow_zero=True))
+                item=InvoiceItem(item_name=name.strip(), hsn_sac=hsn_values[idx].strip() if idx < len(hsn_values) else "", quantity=parse_positive_float(qty_values[idx],"Quantity"), unit_price=parse_positive_float(price_values[idx],"Unit price",allow_zero=True), gst_percentage=parse_gst_rate(gst_values[idx]))
                 validate_item(item); inv.items.append(item)
             if not inv.items: raise ValueError("Add at least one product or service row.")
             validate_invoice_dates(inv.invoice_date, inv.due_date); calculate_invoice(inv); db.session.add(inv); db.session.flush(); inv.pdf_path=pdf.generate(inv); db.session.commit(); logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
