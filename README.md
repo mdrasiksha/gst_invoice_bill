@@ -39,10 +39,21 @@ Open <http://127.0.0.1:5000>, register a company account, complete the company p
 ## Environment Variables
 
 - `SECRET_KEY` - Flask secret key.
-- `DATABASE_URL` - SQLAlchemy database URL. Defaults to SQLite in `instance/`.
+- `DATABASE_URL` - SQLAlchemy database URL. If set to a non-empty value, the app uses it (including Render PostgreSQL); otherwise it defaults to local SQLite in `instance/`.
 - `SESSION_COOKIE_SECURE` - set `true` behind HTTPS.
 - `MAX_CONTENT_LENGTH` - max request/upload size in bytes.
+- `ADMIN_EMAIL` / `ADMIN_PASSWORD` - optional one-time admin bootstrap credentials. If the email already exists, the user is left unchanged.
+- `ADMIN_USERNAME` / `ADMIN_COMPANY_NAME` - optional labels for the one-time admin bootstrap user and company.
 
 ## Deployment
 
-Use `gunicorn app:app` (already defined in `Procfile`). Configure environment variables in Render, Railway, or AWS and mount persistent storage for `uploads/` if using SQLite/local PDF storage.
+Use `gunicorn app:app` (already defined in `Procfile`). Configure environment variables in Render, Railway, or AWS and mount persistent storage for `uploads/` if generated PDFs and uploaded logos/QR codes must survive redeploys.
+
+### Render PostgreSQL setup
+
+1. Create a Render PostgreSQL database from the Render dashboard.
+2. Copy the database **Internal Database URL**. Render may show a URL that starts with `postgres://`; the app normalizes it to SQLAlchemy-compatible `postgresql://` automatically.
+3. In the Render web service, add an environment variable named `DATABASE_URL` with that PostgreSQL URL.
+4. Redeploy the service. On startup, the app runs `db.create_all()` inside the Flask app context to create missing tables without dropping tables or deleting users, customers, invoices, or company settings.
+5. Do not set `DATABASE_URL` for local development unless you want to use PostgreSQL locally; without it, the app uses SQLite at `instance/gst_invoice_saas.db`.
+6. Optional: set `ADMIN_EMAIL` and `ADMIN_PASSWORD` once to bootstrap an admin login. If that email already exists, startup leaves the account and password unchanged.

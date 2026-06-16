@@ -23,11 +23,24 @@ ALLOWED_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 ALLOWED_QR_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 
 
+def database_uri() -> str:
+    """Return the production database URL, falling back to local SQLite.
+
+    Render historically exposes PostgreSQL URLs with the ``postgres://``
+    scheme, while SQLAlchemy expects ``postgresql://``. Normalize that
+    value so the same DATABASE_URL can be used directly in production.
+    """
+    uri = (os.getenv("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'instance' / 'gst_invoice_saas.db'}").strip()
+    if uri.startswith("postgres://"):
+        uri = uri.replace("postgres://", "postgresql://", 1)
+    return uri
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config.update(
         SECRET_KEY=os.environ.get("SECRET_KEY", os.environ.get("GST_INVOICE_SECRET_KEY", secrets.token_hex(32))),
-        SQLALCHEMY_DATABASE_URI=os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR / 'instance' / 'gst_invoice_saas.db'}"),
+        SQLALCHEMY_DATABASE_URI=database_uri(),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         MAX_CONTENT_LENGTH=int(os.environ.get("MAX_CONTENT_LENGTH", 2 * 1024 * 1024)),
         SESSION_COOKIE_HTTPONLY=True,
@@ -58,11 +71,17 @@ def create_app() -> Flask:
         return {"csrf_token": session["csrf_token"]}
 
     with app.app_context():
-        db.create_all()
-        ensure_database_columns()
+        initialize_database()
 
     return app
 
+
+
+def initialize_database() -> None:
+    """Create missing tables without deleting or overwriting existing data."""
+    db.create_all()
+    ensure_database_columns()
+    ensure_admin_user()
 
 
 def ensure_database_columns() -> None:
@@ -78,6 +97,35 @@ def ensure_database_columns() -> None:
         for name, ddl in {"city": "VARCHAR(80) DEFAULT ''", "state": "VARCHAR(80) DEFAULT ''", "pin_code": "VARCHAR(12) DEFAULT ''"}.items():
             if name not in customer_cols:
                 conn.exec_driver_sql(f"ALTER TABLE customers ADD COLUMN {name} {ddl}")
+
+
+def ensure_admin_user() -> None:
+    """Optionally create the configured admin account once.
+
+    Set ADMIN_EMAIL and ADMIN_PASSWORD in the environment to bootstrap an
+    initial admin login. Existing users are never modified, so redeploys do
+    not reset passwords or overwrite company/customer/invoice data.
+    """
+    admin_email = os.getenv("ADMIN_EMAIL", "").strip().lower()
+    admin_password = os.getenv("ADMIN_PASSWORD", "")
+    if not admin_email or not admin_password:
+        return
+    if User.query.filter_by(email=admin_email).first():
+        return
+
+    company = Company(
+        company_name=os.getenv("ADMIN_COMPANY_NAME", "Smart GST Admin"),
+        gstin="",
+        address="",
+    )
+    admin = User(
+        username=os.getenv("ADMIN_USERNAME", "admin"),
+        email=admin_email,
+        company=company,
+    )
+    admin.set_password(admin_password)
+    db.session.add_all([company, admin])
+    db.session.commit()
 
 
 app = create_app()
@@ -144,7 +192,7 @@ def login():
         user = User.query.filter_by(email=request.form.get("email", "").strip().lower()).first()
         if user and user.check_password(request.form.get("password", "")):
             login_user(user, remember=bool(request.form.get("remember"))); return redirect(url_for("dashboard"))
-        flash("Invalid email or password.", "danger")
+        flash("Invalid email or password", "danger")
     return render_template("auth/login.html")
 
 @app.route("/logout", methods=["POST"])
