@@ -1,7 +1,7 @@
 """Multi-tenant SaaS web application for GST invoice generation."""
 from __future__ import annotations
 
-import logging, os, secrets
+import logging, os, secrets, sys
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -26,6 +26,33 @@ ALLOWED_QR_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 ALLOWED_SIGNATURE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
 
+def configure_logging(app: Flask) -> None:
+    """Emit useful tracebacks in Render/Gunicorn production logs."""
+    level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(level=level, stream=sys.stdout, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+    app.logger.setLevel(level)
+
+
+def default_company_for_user(user: User) -> Company:
+    """Create safe placeholder company settings for legacy users missing a company."""
+    name = (getattr(user, "username", "") or getattr(user, "email", "") or "New Company").strip()
+    return Company(company_name=f"{name} Company", gstin="", address="", city="", state="", pin_code="")
+
+
+def ensure_user_company(user: User) -> Company:
+    """Guarantee the logged-in user has a company row before views access it."""
+    company = getattr(user, "company", None)
+    if company is not None:
+        return company
+    company = default_company_for_user(user)
+    user.company = company
+    db.session.add(company)
+    db.session.add(user)
+    db.session.commit()
+    logger.warning("Created missing company settings for user", extra={"user_id": user.id})
+    return company
+
+
 def database_uri() -> str:
     """Return the production database URL, falling back to local SQLite.
 
@@ -41,6 +68,7 @@ def database_uri() -> str:
 
 def create_app() -> Flask:
     app = Flask(__name__)
+    configure_logging(app)
     app.config.update(
         SECRET_KEY=os.environ.get("SECRET_KEY", os.environ.get("GST_INVOICE_SECRET_KEY", secrets.token_hex(32))),
         SQLALCHEMY_DATABASE_URI=database_uri(),
@@ -64,8 +92,9 @@ def create_app() -> Flask:
             token = session.get("csrf_token")
             if not token or token != request.form.get("csrf_token"):
                 abort(400, "Invalid CSRF token")
-        if current_user.is_authenticated and request.endpoint not in {"logout", "company_setup", "static"}:
-            if not current_user.company.profile_complete:
+        if current_user.is_authenticated and request.endpoint not in {"logout", "company_setup", "static", "uploaded_file"}:
+            company = ensure_user_company(current_user)
+            if not company.profile_complete:
                 return redirect(url_for("company_setup"))
 
     @app.context_processor
@@ -81,29 +110,56 @@ def create_app() -> Flask:
 
 
 def initialize_database() -> None:
-    """Create missing tables without deleting or overwriting existing data."""
+    """Create missing tables and safe additive columns without deleting data."""
     db.create_all()
     ensure_database_columns()
     ensure_admin_user()
 
 
 def ensure_database_columns() -> None:
-    """Add lightweight backwards-compatible columns for existing SQLite installs."""
-    uri = str(db.engine.url)
-    if not uri.startswith("sqlite"):
-        return
+    """Add backwards-compatible columns for existing SQLite/PostgreSQL databases."""
+    dialect = db.engine.dialect.name
     with db.engine.begin() as conn:
-        company_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(companies)")}
-        if "upi_qr_image_url" not in company_cols:
-            conn.exec_driver_sql("ALTER TABLE companies ADD COLUMN upi_qr_image_url VARCHAR(300) DEFAULT ''")
-        if "signature_image_path" not in company_cols:
-            conn.exec_driver_sql("ALTER TABLE companies ADD COLUMN signature_image_path VARCHAR(300) DEFAULT ''")
-        if "authorized_signature_name" not in company_cols:
-            conn.exec_driver_sql("ALTER TABLE companies ADD COLUMN authorized_signature_name VARCHAR(180) DEFAULT ''")
-        customer_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(customers)")}
-        for name, ddl in {"city": "VARCHAR(80) DEFAULT ''", "state": "VARCHAR(80) DEFAULT ''", "pin_code": "VARCHAR(12) DEFAULT ''"}.items():
-            if name not in customer_cols:
-                conn.exec_driver_sql(f"ALTER TABLE customers ADD COLUMN {name} {ddl}")
+        def columns(table: str) -> set[str]:
+            if dialect == "sqlite":
+                return {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
+            rows = conn.exec_driver_sql(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = :table",
+                {"table": table},
+            )
+            return {row[0] for row in rows}
+
+        def add_column(table: str, name: str, ddl: str) -> None:
+            existing = columns(table)
+            if name in existing:
+                return
+            if dialect == "postgresql":
+                conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {name} {ddl}")
+            else:
+                conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+        add_column("users", "is_admin", "BOOLEAN NOT NULL DEFAULT FALSE" if dialect == "postgresql" else "INTEGER NOT NULL DEFAULT 0")
+        for name, ddl in {
+            "city": "VARCHAR(80) DEFAULT ''",
+            "state": "VARCHAR(80) DEFAULT ''",
+            "pin_code": "VARCHAR(12) DEFAULT ''",
+            "phone": "VARCHAR(30) DEFAULT ''",
+            "email": "VARCHAR(180) DEFAULT ''",
+            "website": "VARCHAR(180) DEFAULT ''",
+            "logo_path": "VARCHAR(300) DEFAULT ''",
+            "bank_name": "VARCHAR(120) DEFAULT ''",
+            "account_number": "VARCHAR(60) DEFAULT ''",
+            "ifsc": "VARCHAR(20) DEFAULT ''",
+            "upi_id": "VARCHAR(120) DEFAULT ''",
+            "upi_qr_image_url": "VARCHAR(300) DEFAULT ''",
+            "signature_image_path": "VARCHAR(300) DEFAULT ''",
+            "authorized_signature_name": "VARCHAR(180) DEFAULT ''",
+            "invoice_prefix": "VARCHAR(12) DEFAULT 'INV'",
+        }.items():
+            add_column("companies", name, ddl)
+        for name, ddl in {"city": "VARCHAR(80) DEFAULT ''", "state": "VARCHAR(80) DEFAULT ''", "pin_code": "VARCHAR(12) DEFAULT ''", "email": "VARCHAR(180) DEFAULT ''"}.items():
+            add_column("customers", name, ddl)
+        add_column("invoices", "round_off", "FLOAT DEFAULT 0")
 
 
 def ensure_admin_user() -> None:
@@ -117,7 +173,11 @@ def ensure_admin_user() -> None:
     admin_password = os.getenv("ADMIN_PASSWORD", "")
     if not admin_email or not admin_password:
         return
-    if User.query.filter_by(email=admin_email).first():
+    existing_admin = User.query.filter_by(email=admin_email).first()
+    if existing_admin:
+        if not existing_admin.is_admin:
+            existing_admin.is_admin = True
+            db.session.commit()
         return
 
     company = Company(
@@ -129,6 +189,7 @@ def ensure_admin_user() -> None:
         username=os.getenv("ADMIN_USERNAME", "admin"),
         email=admin_email,
         company=company,
+        is_admin=True,
     )
     admin.set_password(admin_password)
     db.session.add_all([company, admin])
@@ -138,6 +199,14 @@ def ensure_admin_user() -> None:
 app = create_app()
 pdf = PDFGenerator(output_dir=PDF_DIR)
 logger = logging.getLogger(__name__)
+
+
+@app.errorhandler(Exception)
+def log_unhandled_exception(exc):
+    if getattr(exc, "code", None) is not None and getattr(exc, "code") < 500:
+        return exc
+    logger.exception("Unhandled application error", extra={"path": request.path, "endpoint": request.endpoint})
+    return render_template("error.html"), 500
 
 
 def save_upload(upload, upload_dir: Path, allowed_extensions: set[str], label: str) -> str:
@@ -248,21 +317,22 @@ def forgot_password():
 @app.route("/")
 @login_required
 def dashboard():
-    cid=current_user.company_id
+    company = ensure_user_company(current_user)
+    cid=company.id
     today=date.today(); month_start=today.replace(day=1); next_month=(month_start.replace(year=month_start.year+1, month=1) if month_start.month == 12 else month_start.replace(month=month_start.month+1))
     monthly = Invoice.query.filter_by(company_id=cid).filter(Invoice.invoice_date >= month_start, Invoice.invoice_date < next_month).all()
     stats={"total_invoices":Invoice.query.filter_by(company_id=cid).count(),"monthly_revenue":sum(i.grand_total for i in monthly),"recent_customers":Customer.query.filter_by(company_id=cid).order_by(Customer.id.desc()).limit(5).all()}
     invoices=Invoice.query.filter_by(company_id=cid).order_by(Invoice.id.desc()).limit(20).all()
-    return render_template("dashboard.html", company=current_user.company, invoices=invoices, stats=stats)
+    return render_template("dashboard.html", company=company, invoices=invoices, stats=stats)
 
 @app.route("/company/setup", methods=["GET", "POST"])
 @app.route("/settings", methods=["GET", "POST"])
 @login_required
 def company_setup():
     if request.method == "POST":
-        try: update_company_from_form(current_user.company); db.session.commit(); flash("Company profile saved.", "success"); return redirect(url_for("dashboard"))
+        try: update_company_from_form(ensure_user_company(current_user)); db.session.commit(); flash("Company profile saved.", "success"); return redirect(url_for("dashboard"))
         except Exception as exc: db.session.rollback(); flash(str(exc), "danger")
-    return render_template("settings.html", company=current_user.company)
+    return render_template("settings.html", company=ensure_user_company(current_user))
 
 @app.route("/customers")
 @login_required
@@ -371,5 +441,19 @@ def delete_invoice(invoice_id):
         flash("Invoice not found or you do not have access to it.", "warning")
         return redirect(url_for("dashboard"))
     db.session.delete(inv); db.session.commit(); flash("Invoice deleted.", "success"); return redirect(url_for("dashboard"))
+
+@app.route("/admin")
+@login_required
+def admin_dashboard():
+    if not current_user.is_admin:
+        abort(403)
+    stats = {
+        "users": User.query.count(),
+        "companies": Company.query.count(),
+        "invoices": Invoice.query.count(),
+    }
+    users = User.query.order_by(User.id.desc()).limit(50).all()
+    return render_template("admin_dashboard.html", stats=stats, users=users)
+
 
 if __name__ == "__main__": app.run(debug=True)

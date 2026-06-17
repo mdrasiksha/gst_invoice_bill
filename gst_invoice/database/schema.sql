@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    is_admin INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS customers (

@@ -32,6 +32,16 @@ class Company(db.Model):
     upi_qr_image_url = db.Column(db.String(300), default="")
     signature_image_path = db.Column(db.String(300), default="")
     authorized_signature_name = db.Column(db.String(180), default="")
+
+    @property
+    def signature_image(self): return self.signature_image_path
+    @signature_image.setter
+    def signature_image(self, value): self.signature_image_path = value or ""
+    @property
+    def signature_name(self): return self.authorized_signature_name
+    @signature_name.setter
+    def signature_name(self, value): self.authorized_signature_name = value or ""
+
     invoice_prefix = db.Column(db.String(12), default="INV")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -63,6 +73,7 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(180), nullable=False, unique=True, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_admin = db.Column(db.Boolean, nullable=False, default=False)
     company = db.relationship("Company", back_populates="users")
 
     def set_password(self, password: str) -> None: self.password_hash = generate_password_hash(password)
