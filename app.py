@@ -8,6 +8,7 @@ from pathlib import Path
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 from werkzeug.utils import secure_filename
+from PIL import Image, UnidentifiedImageError
 
 from gst_invoice.invoice_generator import calculate_invoice
 from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, User, db
@@ -18,9 +19,11 @@ from gst_invoice.validators import ALLOWED_GST_RATES, parse_gst_rate, parse_posi
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads" / "company_logos"
 QR_DIR = BASE_DIR / "uploads" / "upi_qr"
+SIGNATURE_DIR = BASE_DIR / "uploads" / "signatures"
 PDF_DIR = BASE_DIR / "uploads" / "invoices"
 ALLOWED_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 ALLOWED_QR_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+ALLOWED_SIGNATURE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
 
 def database_uri() -> str:
@@ -48,7 +51,7 @@ def create_app() -> Flask:
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true",
     )
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True); QR_DIR.mkdir(parents=True, exist_ok=True); PDF_DIR.mkdir(parents=True, exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True); QR_DIR.mkdir(parents=True, exist_ok=True); SIGNATURE_DIR.mkdir(parents=True, exist_ok=True); PDF_DIR.mkdir(parents=True, exist_ok=True)
     db.init_app(app)
     login_manager = LoginManager(app); login_manager.login_view = "login"; login_manager.session_protection = "strong"
 
@@ -93,6 +96,10 @@ def ensure_database_columns() -> None:
         company_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(companies)")}
         if "upi_qr_image_url" not in company_cols:
             conn.exec_driver_sql("ALTER TABLE companies ADD COLUMN upi_qr_image_url VARCHAR(300) DEFAULT ''")
+        if "signature_image_path" not in company_cols:
+            conn.exec_driver_sql("ALTER TABLE companies ADD COLUMN signature_image_path VARCHAR(300) DEFAULT ''")
+        if "authorized_signature_name" not in company_cols:
+            conn.exec_driver_sql("ALTER TABLE companies ADD COLUMN authorized_signature_name VARCHAR(180) DEFAULT ''")
         customer_cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(customers)")}
         for name, ddl in {"city": "VARCHAR(80) DEFAULT ''", "state": "VARCHAR(80) DEFAULT ''", "pin_code": "VARCHAR(12) DEFAULT ''"}.items():
             if name not in customer_cols:
@@ -137,6 +144,11 @@ def save_upload(upload, upload_dir: Path, allowed_extensions: set[str], label: s
     if not upload or not upload.filename: return ""
     suffix = Path(upload.filename).suffix.lower()
     if suffix not in allowed_extensions: raise ValueError(f"{label} must be PNG, JPG" + (", JPEG, or WEBP." if ".webp" in allowed_extensions else ", or JPEG."))
+    try:
+        Image.open(upload.stream).verify()
+        upload.stream.seek(0)
+    except (UnidentifiedImageError, OSError) as exc:
+        raise ValueError(f"{label} must be a valid image file.") from exc
     filename = f"company-{current_user.company_id}-{secrets.token_hex(8)}{suffix}"
     target = upload_dir / secure_filename(filename)
     upload.save(target)
@@ -148,6 +160,9 @@ def save_logo(upload) -> str:
 def save_upi_qr(upload) -> str:
     return save_upload(upload, QR_DIR, ALLOWED_QR_EXTENSIONS, "UPI QR image")
 
+def save_signature(upload) -> str:
+    return save_upload(upload, SIGNATURE_DIR, ALLOWED_SIGNATURE_EXTENSIONS, "E-sign image")
+
 
 def update_company_from_form(company: Company):
     f = request.form
@@ -155,11 +170,15 @@ def update_company_from_form(company: Company):
     company.address=f.get("address", "").strip(); company.city=f.get("city", "").strip(); company.state=f.get("state", "").strip(); company.pin_code=f.get("pin_code", "").strip()
     company.phone=f.get("phone", "").strip(); company.email=f.get("email", "").strip(); company.website=f.get("website", "").strip()
     company.bank_name=f.get("bank_name", "").strip(); company.account_number=f.get("account_number", "").strip(); company.ifsc=f.get("ifsc", "").strip().upper(); company.upi_id=f.get("upi_id", "").strip()
+    company.authorized_signature_name=f.get("authorized_signature_name", "").strip()
     logo = save_logo(request.files.get("logo"));
     if logo: company.logo_path = logo
     qr = save_upi_qr(request.files.get("upi_qr_image"));
     if qr: company.upi_qr_image_url = qr
     if f.get("remove_upi_qr") == "1": company.upi_qr_image_url = ""
+    signature = save_signature(request.files.get("signature_image"));
+    if signature: company.signature_image_path = signature
+    if f.get("remove_signature_image") == "1": company.signature_image_path = ""
     if not company.company_name or not company.gstin or not company.address: raise ValueError("Company name, GSTIN and address are required.")
 
 

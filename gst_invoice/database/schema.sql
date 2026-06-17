@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS companies (
     account_number TEXT DEFAULT '',
     ifsc TEXT DEFAULT '',
     upi_id TEXT DEFAULT '',
+    upi_qr_image_url TEXT DEFAULT '',
+    signature_image_path TEXT DEFAULT '',
+    authorized_signature_name TEXT DEFAULT '',
     invoice_prefix TEXT DEFAULT 'INV',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );

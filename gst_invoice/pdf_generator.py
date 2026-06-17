@@ -149,7 +149,17 @@ class PDFGenerator:
         terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{terms_text}", styles["Small"])
         story += [Table([[bank, qr_cell, terms]], colWidths=[67*mm, 38*mm, 77*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "TOP"), ("ALIGN", (1,0), (1,0), "CENTER"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("LEFTPADDING", (0,0), (-1,-1), 7), ("RIGHTPADDING", (0,0), (-1,-1), 7), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]), Spacer(1, 5*mm)]
 
-        sig = Table([["Customer Signature", "Company Seal", f"For {invoice.company.company_name}\n\nAuthorized Signature"]], colWidths=[60*mm, 52*mm, 70*mm], rowHeights=[24*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "BOTTOM"), ("ALIGN", (0,0), (-1,-1), "CENTER"), ("FONTNAME", (0,0), (-1,-1), bold), ("FONTSIZE", (0,0), (-1,-1), 8)])
+        signature_parts = [Paragraph(f"For {esc(invoice.company.company_name)}", styles["Small"])]
+        signature_path = image_path(getattr(invoice.company, "signature_image_path", ""))
+        if signature_path and signature_path.exists():
+            try:
+                signature_parts.append(fitted_image(signature_path, 42*mm, 14*mm))
+            except Exception:
+                logger.warning("Skipping invalid signature image", exc_info=True, extra={"company_id": invoice.company_id})
+        if getattr(invoice.company, "authorized_signature_name", ""):
+            signature_parts.append(Paragraph(f"<b>{esc(invoice.company.authorized_signature_name)}</b>", styles["Small"]))
+        signature_parts.append(Paragraph("<b>Authorized Signature</b>", styles["Small"]))
+        sig = Table([["Customer Signature", "Company Seal", signature_parts]], colWidths=[60*mm, 52*mm, 70*mm], rowHeights=[28*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "BOTTOM"), ("ALIGN", (0,0), (-1,-1), "CENTER"), ("FONTNAME", (0,0), (1,0), bold), ("FONTSIZE", (0,0), (-1,-1), 8), ("TOPPADDING", (2,0), (2,0), 4), ("BOTTOMPADDING", (2,0), (2,0), 4)])
         story.append(KeepTogether(sig))
         def page_footer(canvas: Canvas, _doc):
             canvas.saveState(); canvas.setFont(font, 8); canvas.setFillColor(colors.HexColor("#64748B")); canvas.drawString(12*mm, 8*mm, f"Smart GST · {invoice.company.company_name} · {invoice.invoice_number}"); canvas.drawRightString(198*mm, 8*mm, f"Page {canvas.getPageNumber()}"); canvas.restoreState()
@@ -159,7 +169,7 @@ class PDFGenerator:
         lines = ["TAX INVOICE", f"Invoice: {invoice.invoice_number}  Date: {invoice.invoice_date:%d-%m-%Y}", f"Seller: {invoice.company.seller_name} GSTIN: {invoice.company.gstin}", f"Buyer: {invoice.customer.customer_name} GSTIN: {invoice.customer.gstin or 'Unregistered'}", "Items:"]
         for item in invoice.items:
             lines.append(f"{item.item_name} HSN:{item.hsn_sac or '-'} Qty:{item.quantity:g} Total:{item.total_amount:.2f}")
-        lines += [f"Taxable: INR {invoice.taxable_amount:.2f}", f"CGST: INR {invoice.cgst:.2f} SGST: INR {invoice.sgst:.2f} IGST: INR {invoice.igst:.2f}", f"Grand Total: INR {invoice.grand_total:.2f}", amount_to_words(invoice.grand_total), "Terms and Conditions apply.", "Authorized Signatory"]
+        lines += [f"Taxable: INR {invoice.taxable_amount:.2f}", f"CGST: INR {invoice.cgst:.2f} SGST: INR {invoice.sgst:.2f} IGST: INR {invoice.igst:.2f}", f"Grand Total: INR {invoice.grand_total:.2f}", amount_to_words(invoice.grand_total), "Terms and Conditions apply.", getattr(invoice.company, "authorized_signature_name", "") or "", "Authorized Signature"]
         content = "BT /F1 10 Tf 50 800 Td " + " T* ".join(f"({line.replace('(', '[').replace(')', ']')})" for line in lines) + " ET"
         objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", f"<< /Length {len(content.encode())} >>\nstream\n{content}\nendstream"]
         pdf = "%PDF-1.4\n"; offsets = []

@@ -30,6 +30,8 @@ class Company(db.Model):
     ifsc = db.Column(db.String(20), default="")
     upi_id = db.Column(db.String(120), default="")
     upi_qr_image_url = db.Column(db.String(300), default="")
+    signature_image_path = db.Column(db.String(300), default="")
+    authorized_signature_name = db.Column(db.String(180), default="")
     invoice_prefix = db.Column(db.String(12), default="INV")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
