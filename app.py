@@ -9,6 +9,7 @@ from flask import Flask, abort, flash, jsonify, redirect, render_template, reque
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 from werkzeug.utils import secure_filename
 from PIL import Image, UnidentifiedImageError
+from sqlalchemy import text
 
 from gst_invoice.invoice_generator import calculate_invoice
 from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, User, db
@@ -123,8 +124,12 @@ def ensure_database_columns() -> None:
         def columns(table: str) -> set[str]:
             if dialect == "sqlite":
                 return {row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")}
-            rows = conn.exec_driver_sql(
-                "SELECT column_name FROM information_schema.columns WHERE table_name = :table",
+            rows = conn.execute(
+                text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = :table
+                """),
                 {"table": table},
             )
             return {row[0] for row in rows}
