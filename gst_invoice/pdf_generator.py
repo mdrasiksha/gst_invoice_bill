@@ -151,7 +151,7 @@ class PDFGenerator:
         terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{terms_text}", styles["Small"])
         story += [Table([[bank, qr_cell, terms]], colWidths=[67*mm, 38*mm, 77*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "TOP"), ("ALIGN", (1,0), (1,0), "CENTER"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("LEFTPADDING", (0,0), (-1,-1), 7), ("RIGHTPADDING", (0,0), (-1,-1), 7), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]), Spacer(1, 5*mm)]
 
-        signature_parts = [Paragraph(f"For {esc(invoice.company.company_name)}", styles["SmallCenter"])]
+        signature_parts = []
         signature_path = image_path(getattr(invoice.company, "signature_image_path", ""))
         if signature_path and signature_path.exists():
             try:
