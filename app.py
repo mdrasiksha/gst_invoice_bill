@@ -170,9 +170,31 @@ def next_invoice_number(company_id: int) -> str:
     return f"{prefix}{seq:04d}"
 
 
-def scoped_invoice(invoice_id: int) -> Invoice:
-    inv = Invoice.query.filter_by(id=invoice_id, company_id=current_user.company_id).first_or_404()
-    return inv
+def scoped_invoice(invoice_id: int) -> Invoice | None:
+    return Invoice.query.filter_by(id=invoice_id, company_id=current_user.company_id).first()
+
+
+def invoice_view_context(inv: Invoice) -> dict:
+    items = list(inv.items or [])
+    max_gst_rate = max((float(item.gst_percentage or 0) for item in items), default=0.0)
+    totals = {
+        "taxable_amount": float(inv.taxable_amount or 0),
+        "cgst": float(inv.cgst or 0),
+        "sgst": float(inv.sgst or 0),
+        "igst": float(inv.igst or 0),
+        "round_off": float(inv.round_off or 0),
+        "grand_total": float(inv.grand_total or 0),
+        "max_gst_rate": max_gst_rate,
+    }
+    return {
+        "invoice": inv,
+        "customer": inv.customer,
+        "company": inv.company,
+        "invoice_items": items,
+        "items": items,
+        "totals": totals,
+        "amount_to_words": amount_to_words,
+    }
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -298,18 +320,37 @@ def create_invoice():
     return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES)
 
 @app.route("/invoice/<int:invoice_id>")
+@app.route("/invoice/view/<int:invoice_id>")
 @login_required
-def invoice_preview(invoice_id): return render_template("invoice_preview.html", invoice=scoped_invoice(invoice_id), amount_to_words=amount_to_words)
+def invoice_preview(invoice_id):
+    inv = scoped_invoice(invoice_id)
+    if not inv:
+        flash("Invoice not found or you do not have access to it.", "warning")
+        return redirect(url_for("dashboard"))
+    if not inv.company or not inv.customer:
+        logger.error("Invoice is missing related company/customer", extra={"invoice_id": invoice_id})
+        abort(404)
+    return render_template("invoice_preview.html", **invoice_view_context(inv))
 
 @app.route("/invoice/<int:invoice_id>/pdf")
 @login_required
 def download_pdf(invoice_id):
-    inv=scoped_invoice(invoice_id); path=BASE_DIR / inv.pdf_path if inv.pdf_path else Path(pdf.generate(inv))
-    if not path.exists(): path=Path(pdf.generate(inv))
+    inv = scoped_invoice(invoice_id)
+    if not inv:
+        flash("Invoice not found or you do not have access to it.", "warning")
+        return redirect(url_for("dashboard"))
+    path = BASE_DIR / inv.pdf_path if inv.pdf_path else Path(pdf.generate(inv))
+    if not path.exists():
+        path = Path(pdf.generate(inv))
     return send_file(path, as_attachment=True, download_name=f"{inv.invoice_number}.pdf")
 
 @app.route("/invoice/<int:invoice_id>/delete", methods=["POST"])
 @login_required
-def delete_invoice(invoice_id): inv=scoped_invoice(invoice_id); db.session.delete(inv); db.session.commit(); flash("Invoice deleted.", "success"); return redirect(url_for("dashboard"))
+def delete_invoice(invoice_id):
+    inv = scoped_invoice(invoice_id)
+    if not inv:
+        flash("Invoice not found or you do not have access to it.", "warning")
+        return redirect(url_for("dashboard"))
+    db.session.delete(inv); db.session.commit(); flash("Invoice deleted.", "success"); return redirect(url_for("dashboard"))
 
 if __name__ == "__main__": app.run(debug=True)
