@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS companies (
     account_number TEXT DEFAULT '',
     ifsc TEXT DEFAULT '',
     upi_id TEXT DEFAULT '',
+    qr_code_path TEXT DEFAULT '',
     upi_qr_image_url TEXT DEFAULT '',
     signature_image_path TEXT DEFAULT '',
     authorized_signature_name TEXT DEFAULT '',

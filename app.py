@@ -156,12 +156,17 @@ def ensure_database_columns() -> None:
             "account_number": "VARCHAR(60) DEFAULT ''",
             "ifsc": "VARCHAR(20) DEFAULT ''",
             "upi_id": "VARCHAR(120) DEFAULT ''",
+            "qr_code_path": "VARCHAR(300) DEFAULT ''",
             "upi_qr_image_url": "VARCHAR(300) DEFAULT ''",
             "signature_image_path": "VARCHAR(300) DEFAULT ''",
             "authorized_signature_name": "VARCHAR(180) DEFAULT ''",
             "invoice_prefix": "VARCHAR(12) DEFAULT 'INV'",
         }.items():
             add_column("companies", name, ddl)
+        refreshed_company_columns = columns("companies")
+        if "qr_code_path" in refreshed_company_columns and "upi_qr_image_url" in refreshed_company_columns:
+            conn.exec_driver_sql("UPDATE companies SET qr_code_path = upi_qr_image_url WHERE COALESCE(qr_code_path, '') = '' AND COALESCE(upi_qr_image_url, '') != ''")
+
         for name, ddl in {"city": "VARCHAR(80) DEFAULT ''", "state": "VARCHAR(80) DEFAULT ''", "pin_code": "VARCHAR(12) DEFAULT ''", "email": "VARCHAR(180) DEFAULT ''"}.items():
             add_column("customers", name, ddl)
         add_column("invoices", "round_off", "FLOAT DEFAULT 0")
@@ -248,8 +253,14 @@ def update_company_from_form(company: Company):
     logo = save_logo(request.files.get("logo"));
     if logo: company.logo_path = logo
     qr = save_upi_qr(request.files.get("upi_qr_image"));
-    if qr: company.upi_qr_image_url = qr
-    if f.get("remove_upi_qr") == "1": company.upi_qr_image_url = ""
+    if qr:
+        company.qr_code_path = qr
+        if hasattr(company, "upi_qr_image_url"):
+            company.upi_qr_image_url = qr
+    if f.get("remove_upi_qr") == "1":
+        company.qr_code_path = ""
+        if hasattr(company, "upi_qr_image_url"):
+            company.upi_qr_image_url = ""
     signature = save_signature(request.files.get("signature_image"));
     if signature: company.signature_image_path = signature
     if f.get("remove_signature_image") == "1": company.signature_image_path = ""

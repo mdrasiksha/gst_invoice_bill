@@ -58,9 +58,11 @@ class PDFGenerator:
         styles.add(ParagraphStyle("Tiny", parent=styles["BodyText"], fontName=font, fontSize=7, leading=9, textColor=text))
         styles.add(ParagraphStyle("Cell", parent=styles["Small"], wordWrap="CJK"))
         styles.add(ParagraphStyle("CellRight", parent=styles["Small"], alignment=TA_RIGHT))
+        styles.add(ParagraphStyle("CellCenter", parent=styles["Small"], alignment=TA_CENTER))
+        styles.add(ParagraphStyle("SmallCenter", parent=styles["Small"], alignment=TA_CENTER))
         styles.add(ParagraphStyle("Section", parent=styles["Small"], fontName=bold, textColor=blue, fontSize=9, leading=11))
         styles.add(ParagraphStyle("Badge", parent=styles["BodyText"], alignment=TA_CENTER, fontName=bold, fontSize=14, leading=16, textColor=colors.white))
-        styles.add(ParagraphStyle("Company", parent=styles["BodyText"], fontName=bold, fontSize=13, leading=16, textColor=blue))
+        styles.add(ParagraphStyle("Company", parent=styles["BodyText"], fontName=bold, fontSize=12, leading=15, textColor=blue, wordWrap="CJK"))
 
         def esc(value) -> str:
             return str(value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
@@ -120,9 +122,9 @@ class PDFGenerator:
 
         data = [["Sr No", "Description", "HSN/SAC", "Qty", "Unit Price", "GST %", "Amount"]]
         for idx, item in enumerate(invoice.items, 1):
-            data.append([str(idx), Paragraph(esc(item.item_name), styles["Cell"]), Paragraph(esc(item.hsn_sac or "-"), styles["Cell"]), f"{item.quantity:g}", money(item.unit_price), f"{item.gst_percentage:g}%", money(item.total_amount)])
+            data.append([str(idx), Paragraph(esc(item.item_name), styles["Cell"]), Paragraph(esc(item.hsn_sac or "-"), styles["CellCenter"]), Paragraph(f"{item.quantity:g}", styles["CellCenter"]), Paragraph(money(item.unit_price), styles["CellCenter"]), Paragraph(f"{item.gst_percentage:g}%", styles["CellCenter"]), Paragraph(money(item.total_amount), styles["CellCenter"])])
         items = Table(data, repeatRows=1, colWidths=[10*mm, 68*mm, 22*mm, 15*mm, 28*mm, 18*mm, 21*mm])
-        items.setStyle(TableStyle([("GRID", (0,0), (-1,-1), 0.4, border), ("BACKGROUND", (0,0), (-1,0), blue), ("TEXTCOLOR", (0,0), (-1,0), colors.white), ("FONTNAME", (0,0), (-1,0), bold), ("FONTNAME", (0,1), (-1,-1), font), ("FONTSIZE", (0,0), (-1,-1), 7.5), ("ALIGN", (0,0), (0,-1), "CENTER"), ("ALIGN", (3,1), (-1,-1), "RIGHT"), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 4), ("RIGHTPADDING", (0,0), (-1,-1), 4), ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5), ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#FAFCFF")])]))
+        items.setStyle(TableStyle([("GRID", (0,0), (-1,-1), 0.4, border), ("BACKGROUND", (0,0), (-1,0), blue), ("TEXTCOLOR", (0,0), (-1,0), colors.white), ("FONTNAME", (0,0), (-1,0), bold), ("FONTNAME", (0,1), (-1,-1), font), ("FONTSIZE", (0,0), (-1,-1), 7.5), ("ALIGN", (0,0), (0,-1), "CENTER"), ("ALIGN", (2,1), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 4), ("RIGHTPADDING", (0,0), (-1,-1), 4), ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5), ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#FAFCFF")])]))
         story += [items, Spacer(1, 4*mm)]
 
         summary_rows = [["Taxable Amount", money(invoice.taxable_amount)]]
@@ -149,16 +151,16 @@ class PDFGenerator:
         terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{terms_text}", styles["Small"])
         story += [Table([[bank, qr_cell, terms]], colWidths=[67*mm, 38*mm, 77*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "TOP"), ("ALIGN", (1,0), (1,0), "CENTER"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("LEFTPADDING", (0,0), (-1,-1), 7), ("RIGHTPADDING", (0,0), (-1,-1), 7), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]), Spacer(1, 5*mm)]
 
-        signature_parts = [Paragraph(f"For {esc(invoice.company.company_name)}", styles["Small"])]
+        signature_parts = [Paragraph(f"For {esc(invoice.company.company_name)}", styles["SmallCenter"])]
         signature_path = image_path(getattr(invoice.company, "signature_image_path", ""))
         if signature_path and signature_path.exists():
             try:
-                signature_parts.append(fitted_image(signature_path, 42*mm, 14*mm))
+                signature_parts.append(Table([[fitted_image(signature_path, 42*mm, 14*mm)]], colWidths=[56*mm], style=[("ALIGN", (0,0), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("LEFTPADDING", (0,0), (-1,-1), 0), ("RIGHTPADDING", (0,0), (-1,-1), 0), ("TOPPADDING", (0,0), (-1,-1), 0), ("BOTTOMPADDING", (0,0), (-1,-1), 0)]))
             except Exception:
                 logger.warning("Skipping invalid signature image", exc_info=True, extra={"company_id": invoice.company_id})
         if getattr(invoice.company, "authorized_signature_name", ""):
-            signature_parts.append(Paragraph(f"<b>{esc(invoice.company.authorized_signature_name)}</b>", styles["Small"]))
-        signature_parts.append(Paragraph("<b>Authorized Signature</b>", styles["Small"]))
+            signature_parts.append(Paragraph(f"<b>{esc(invoice.company.authorized_signature_name)}</b>", styles["SmallCenter"]))
+        signature_parts.append(Paragraph("<b>Authorized Signature</b>", styles["SmallCenter"]))
         sig = Table([["Customer Signature", "Company Seal", signature_parts]], colWidths=[60*mm, 52*mm, 70*mm], rowHeights=[28*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "BOTTOM"), ("ALIGN", (0,0), (-1,-1), "CENTER"), ("FONTNAME", (0,0), (1,0), bold), ("FONTSIZE", (0,0), (-1,-1), 8), ("TOPPADDING", (2,0), (2,0), 4), ("BOTTOMPADDING", (2,0), (2,0), 4)])
         story.append(KeepTogether(sig))
         def page_footer(canvas: Canvas, _doc):
