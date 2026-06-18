@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging, os, secrets, sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, send_from_directory, session, url_for
@@ -26,6 +26,8 @@ PDF_DIR = BASE_DIR / "uploads" / "invoices"
 ALLOWED_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 ALLOWED_QR_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 ALLOWED_SIGNATURE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+FREE_MONTHLY_INVOICE_LIMIT = 50
+INVOICE_LIMIT_MESSAGE = "Monthly invoice limit reached. You can create up to 50 invoices per month."
 
 
 def configure_logging(app: Flask) -> None:
@@ -145,6 +147,7 @@ def ensure_database_columns() -> None:
                 conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
         add_column("users", "is_admin", "BOOLEAN NOT NULL DEFAULT FALSE" if dialect == "postgresql" else "INTEGER NOT NULL DEFAULT 0")
+        add_column("users", "plan", "VARCHAR(20) NOT NULL DEFAULT 'free'")
         for name, ddl in {
             "city": "VARCHAR(80) DEFAULT ''",
             "state": "VARCHAR(80) DEFAULT ''",
@@ -171,6 +174,7 @@ def ensure_database_columns() -> None:
         for name, ddl in {"city": "VARCHAR(80) DEFAULT ''", "state": "VARCHAR(80) DEFAULT ''", "pin_code": "VARCHAR(12) DEFAULT ''", "email": "VARCHAR(180) DEFAULT ''"}.items():
             add_column("customers", name, ddl)
         add_column("invoices", "round_off", "FLOAT DEFAULT 0")
+        add_column("invoices", "created_by_user_id", "INTEGER")
 
 
 def ensure_admin_user() -> None:
@@ -273,6 +277,35 @@ def update_company_from_form(company: Company):
     if not all([company.company_name, company.gstin, company.address, company.city, company.state, company.pin_code]):
         raise ValueError("Company name, GSTIN, address, city, state and PIN code are required.")
 
+
+
+def current_month_bounds() -> tuple[datetime, datetime]:
+    """Return UTC datetime bounds for the current calendar month."""
+    today = date.today()
+    month_start_date = today.replace(day=1)
+    next_month_date = (
+        month_start_date.replace(year=month_start_date.year + 1, month=1)
+        if month_start_date.month == 12
+        else month_start_date.replace(month=month_start_date.month + 1)
+    )
+    return datetime.combine(month_start_date, datetime.min.time()), datetime.combine(next_month_date, datetime.min.time())
+
+
+def free_monthly_invoice_count(user: User) -> int:
+    """Count invoices created by a free-plan user in the current calendar month."""
+    month_start, next_month = current_month_bounds()
+    return Invoice.query.filter(
+        Invoice.created_by_user_id == user.id,
+        Invoice.created_at >= month_start,
+        Invoice.created_at < next_month,
+    ).count()
+
+
+def invoice_limit_reached(user: User) -> bool:
+    """Return True when a non-admin free user has reached the monthly invoice limit."""
+    if getattr(user, "is_admin", False) or getattr(user, "plan", "free") != "free":
+        return False
+    return free_monthly_invoice_count(user) >= FREE_MONTHLY_INVOICE_LIMIT
 
 def next_invoice_number(company_id: int) -> str:
     year = date.today().year; prefix = f"INV-{year}-"
@@ -395,6 +428,11 @@ def create_invoice():
     if request.method == "POST":
         wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest" or "application/json" in request.headers.get("Accept", "")
         try:
+            if invoice_limit_reached(current_user):
+                if wants_json:
+                    return jsonify({"ok": False, "message": INVOICE_LIMIT_MESSAGE}), 403
+                flash(INVOICE_LIMIT_MESSAGE, "danger")
+                return redirect(url_for("create_invoice"))
             customer_type = request.form.get("customer_type", "new")
             if customer_type == "new":
                 if not request.form.get("new_customer_name", "").strip():
@@ -417,7 +455,7 @@ def create_invoice():
                 if not customer_id:
                     raise ValueError("Select a customer before generating the PDF.")
                 customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first_or_404()
-            inv=Invoice(company=current_user.company, customer=customer, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=parse_required_date(request.form.get("invoice_date"),"Invoice date"), due_date=parse_required_date(request.form.get("due_date"),"Due date"), place_of_supply=request.form.get("place_of_supply","").strip(), state_code=request.form.get("state_code","").strip() or customer.state_code or current_user.company.state_code)
+            inv=Invoice(company=current_user.company, customer=customer, created_by_user_id=current_user.id, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=parse_required_date(request.form.get("invoice_date"),"Invoice date"), due_date=parse_required_date(request.form.get("due_date"),"Due date"), place_of_supply=request.form.get("place_of_supply","").strip(), state_code=request.form.get("state_code","").strip() or customer.state_code or current_user.company.state_code)
             setattr(inv, "terms", request.form.get("terms", "").strip())
             hsn_values=request.form.getlist("hsn_sac[]"); qty_values=request.form.getlist("quantity[]"); price_values=request.form.getlist("unit_price[]"); gst_values=request.form.getlist("gst_percentage[]")
             for idx,name in enumerate(request.form.getlist("item_name[]")):
@@ -432,7 +470,7 @@ def create_invoice():
         except Exception as exc:
             db.session.rollback(); logger.exception("Invoice PDF generation failed")
             if wants_json:
-                return jsonify({"ok": False, "message": "Unable to generate invoice PDF. Please try again."}), 400
+                return jsonify({"ok": False, "message": str(exc)}), 400
             flash(str(exc), "danger")
     defaults={"invoice_number":next_invoice_number(current_user.company_id),"invoice_date":date.today().isoformat(),"due_date":(date.today()+timedelta(days=15)).isoformat()}
     return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES)

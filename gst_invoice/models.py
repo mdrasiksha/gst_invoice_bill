@@ -79,6 +79,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_admin = db.Column(db.Boolean, nullable=False, default=False)
+    plan = db.Column(db.String(20), nullable=False, default="free")
     company = db.relationship("Company", back_populates="users")
 
     def set_password(self, password: str) -> None: self.password_hash = generate_password_hash(password)
@@ -109,6 +110,7 @@ class Invoice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     company_id = db.Column(db.Integer, db.ForeignKey("companies.id"), nullable=False, index=True)
     customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=False)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
     invoice_number = db.Column(db.String(40), nullable=False)
     invoice_date = db.Column(db.Date, nullable=False, default=date.today)
     due_date = db.Column(db.Date, nullable=False, default=date.today)
@@ -124,6 +126,7 @@ class Invoice(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     company = db.relationship("Company", back_populates="invoices")
     customer = db.relationship("Customer", back_populates="invoices")
+    created_by_user = db.relationship("User")
     items = db.relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
     @property
     def is_intrastate(self): return (self.company.state_code or "") == (self.state_code or "")
