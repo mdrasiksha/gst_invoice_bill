@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging, os, secrets, sys
+from functools import wraps
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -28,6 +29,8 @@ ALLOWED_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 ALLOWED_QR_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 ALLOWED_SIGNATURE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 PLAN_MONTHLY_INVOICE_LIMITS = {"free": 50, "starter": 300, "pro": None, "business": None}
+DEFAULT_ADMIN_EMAIL = "mototest2022@gmail.com"
+DEFAULT_ADMIN_PASSWORD = "Moto@2020"
 PRICING_PLANS = [
     {"key": "free", "name": "Free", "price": "0", "limit": "50 invoices/month", "note": "Best for trying Smart GST."},
     {"key": "starter", "name": "Starter", "price": "199", "limit": "300 invoices/month", "note": "For growing invoice volume."},
@@ -103,7 +106,7 @@ def create_app() -> Flask:
             token = session.get("csrf_token")
             if not token or token != request.form.get("csrf_token"):
                 abort(400, "Invalid CSRF token")
-        if current_user.is_authenticated and request.endpoint not in {"logout", "company_setup", "static", "uploaded_file", "admin_dashboard"}:
+        if current_user.is_authenticated and request.endpoint not in {"logout", "company_setup", "static", "uploaded_file", "admin_index", "admin_dashboard"}:
             company = ensure_user_company(current_user)
             if not company.profile_complete:
                 return redirect(url_for("company_setup"))
@@ -116,9 +119,10 @@ def create_app() -> Flask:
     @app.cli.command("create-admin")
     @click.option("--email", required=True, help="Admin email address.")
     @click.option("--password", required=True, help="Admin password.")
-    def create_admin_command(email: str, password: str) -> None:
+    @click.option("--update-password", is_flag=True, help="Update the password if the admin user already exists.")
+    def create_admin_command(email: str, password: str, update_password: bool) -> None:
         """Create or promote an admin user without deleting existing data."""
-        user, created, password_updated = create_or_update_admin(email, password)
+        user, created, password_updated = create_or_update_admin(email, password, update_existing_password=update_password)
         action = "Created" if created else "Updated"
         password_note = " Password updated." if password_updated else " Password unchanged."
         click.echo(f"{action} admin user {user.email}.{password_note}")
@@ -195,11 +199,11 @@ def ensure_database_columns() -> None:
 
 
 
-def create_or_update_admin(email: str, password: str) -> tuple[User, bool, bool]:
+def create_or_update_admin(email: str, password: str, *, update_existing_password: bool = False) -> tuple[User, bool, bool]:
     """Create a new admin or promote an existing user safely.
 
     Existing users keep all company/customer/invoice data. Their password is
-    changed only when the supplied password does not already match.
+    changed only when update_existing_password is explicitly enabled.
     """
     admin_email = (email or "").strip().lower()
     if not admin_email:
@@ -211,7 +215,7 @@ def create_or_update_admin(email: str, password: str) -> tuple[User, bool, bool]
     password_updated = False
     if user:
         user.is_admin = True
-        if not user.check_password(password):
+        if update_existing_password and not user.check_password(password):
             user.set_password(password)
             password_updated = True
         db.session.add(user)
@@ -228,35 +232,15 @@ def create_or_update_admin(email: str, password: str) -> tuple[User, bool, bool]
 def ensure_admin_user() -> None:
     """Optionally create the configured admin account once.
 
-    Set ADMIN_EMAIL and ADMIN_PASSWORD in the environment to bootstrap an
-    initial admin login. Existing users are never modified, so redeploys do
-    not reset passwords or overwrite company/customer/invoice data.
+    ADMIN_EMAIL and ADMIN_PASSWORD may override the built-in bootstrap
+    credentials. Existing users keep their company/customer/invoice data;
+    ADMIN_UPDATE_PASSWORD controls whether their password is refreshed.
     """
-    admin_email = os.getenv("ADMIN_EMAIL", "").strip().lower()
-    admin_password = os.getenv("ADMIN_PASSWORD", "")
-    if not admin_email or not admin_password:
-        return
-    existing_admin = User.query.filter_by(email=admin_email).first()
-    if existing_admin:
-        if not existing_admin.is_admin:
-            existing_admin.is_admin = True
-            db.session.commit()
-        return
-
-    company = Company(
-        company_name=os.getenv("ADMIN_COMPANY_NAME", "Smart GST Admin"),
-        gstin="",
-        address="",
-    )
-    admin = User(
-        username=os.getenv("ADMIN_USERNAME", "admin"),
-        email=admin_email,
-        company=company,
-        is_admin=True,
-    )
-    admin.set_password(admin_password)
-    db.session.add_all([company, admin])
-    db.session.commit()
+    admin_email = os.getenv("ADMIN_EMAIL", DEFAULT_ADMIN_EMAIL).strip().lower()
+    admin_password = os.getenv("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
+    update_existing_password = os.getenv("ADMIN_UPDATE_PASSWORD", "true").lower() in {"1", "true", "yes", "on"}
+    create_or_update_admin(admin_email, admin_password, update_existing_password=update_existing_password)
+    logging.getLogger(__name__).info("Admin user configured: %s", admin_email)
 
 
 app = create_app()
@@ -276,6 +260,17 @@ def log_unhandled_exception(exc):
 def not_found(_exc):
     return render_template("error.html", title="Not found", message="The requested record was not found or you do not have access to it."), 404
 
+
+
+def admin_required(view_func):
+    """Require an authenticated administrator for admin-only views."""
+    @wraps(view_func)
+    @login_required
+    def wrapped_view(*args, **kwargs):
+        if not current_user.is_admin:
+            abort(403)
+        return view_func(*args, **kwargs)
+    return wrapped_view
 
 def save_upload(upload, upload_dir: Path, allowed_extensions: set[str], label: str) -> str:
     if not upload or not upload.filename: return ""
@@ -574,17 +569,14 @@ def delete_invoice(invoice_id):
     db.session.delete(inv); db.session.commit(); flash("Invoice deleted.", "success"); return redirect(url_for("dashboard"))
 
 @app.route("/admin")
-@login_required
+@admin_required
 def admin_index():
     return redirect(url_for("admin_dashboard"))
 
 
 @app.route("/admin/dashboard")
-@login_required
+@admin_required
 def admin_dashboard():
-    if not current_user.is_admin:
-        abort(403)
-
     month_start, next_month = current_month_bounds()
     stats = {
         "users": User.query.count(),
