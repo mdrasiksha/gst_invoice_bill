@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     is_admin INTEGER NOT NULL DEFAULT 0,
+    plan TEXT NOT NULL DEFAULT 'free',
     FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS customers (
@@ -50,6 +51,7 @@ CREATE TABLE IF NOT EXISTS invoices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id INTEGER NOT NULL,
     customer_id INTEGER NOT NULL,
+    created_by_user_id INTEGER,
     invoice_number TEXT NOT NULL,
     invoice_date DATE NOT NULL,
     due_date DATE NOT NULL,
@@ -65,7 +67,8 @@ CREATE TABLE IF NOT EXISTS invoices (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(company_id, invoice_number),
     FOREIGN KEY(company_id) REFERENCES companies(id) ON DELETE CASCADE,
-    FOREIGN KEY(customer_id) REFERENCES customers(id)
+    FOREIGN KEY(customer_id) REFERENCES customers(id),
+    FOREIGN KEY(created_by_user_id) REFERENCES users(id)
 );
 CREATE TABLE IF NOT EXISTS invoice_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
