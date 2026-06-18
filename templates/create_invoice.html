@@ -37,4 +37,20 @@
     </div></div></aside>
   </div>
 </form>
+
+<div class="modal fade" id="upgradeModal" tabindex="-1" aria-labelledby="upgradeModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="upgradeModalLabel">Upgrade required</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">Monthly invoice limit reached. Please upgrade your plan to continue creating invoices.</div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+        <a class="btn btn-primary" href="{{ url_for('pricing') }}">Upgrade</a>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

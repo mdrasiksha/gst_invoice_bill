@@ -34,6 +34,33 @@
   document.getElementById('addRowBtn')?.addEventListener('click',()=>{const clone=table.querySelector('tbody tr').cloneNode(true);clone.querySelectorAll('input').forEach(input=>{input.value=input.name==='quantity[]'?'1':input.name==='unit_price[]'?'0':''});clone.querySelector('[name="gst_percentage[]"]').value='18.0';table.querySelector('tbody').appendChild(clone);bindRow(clone);recalc();});
   form.querySelectorAll('.live,input,select,textarea').forEach(el=>el.addEventListener('input',()=>{updateCustomerMode();recalc();}));
   form.querySelectorAll('[name="customer_type"]').forEach(el=>el.addEventListener('change',()=>{updateCustomerMode();recalc();}));
-  form.addEventListener('submit',(e)=>{if(isNewCustomer() && !field('new_customer_name')?.value.trim()){e.preventDefault(); document.getElementById('newCustomerName')?.focus(); alert('Customer Name is required for a new customer.');}});
+  form.addEventListener('submit',async(e)=>{
+    if(isNewCustomer() && !field('new_customer_name')?.value.trim()){e.preventDefault(); document.getElementById('newCustomerName')?.focus(); alert('Customer Name is required for a new customer.'); return;}
+    e.preventDefault();
+    const alertBox=document.getElementById('invoiceAlert');
+    const overlay=document.getElementById('loadingOverlay');
+    const submit=form.querySelector('#generatePdfBtn');
+    alertBox?.classList.add('d-none');
+    overlay?.classList.remove('d-none');
+    if(submit) submit.disabled=true;
+    try{
+      const response=await fetch(form.action || window.location.href,{method:'POST',body:new FormData(form),headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+      const data=await response.json().catch(()=>({ok:false,message:'Unable to generate invoice.'}));
+      if(response.status===403){
+        const modalEl=document.getElementById('upgradeModal');
+        if(modalEl && window.bootstrap){new bootstrap.Modal(modalEl).show();}
+        else {alert(data.message || 'Monthly invoice limit reached. Please upgrade your plan to continue creating invoices.');}
+        return;
+      }
+      if(!response.ok || !data.ok) throw new Error(data.message || 'Unable to generate invoice.');
+      window.location.href=data.download_url;
+    }catch(err){
+      if(alertBox){alertBox.textContent=err.message; alertBox.className='alert alert-danger';}
+      else alert(err.message);
+    }finally{
+      overlay?.classList.add('d-none');
+      if(submit) submit.disabled=false;
+    }
+  });
   updateCustomerMode(); recalc();
 })();
