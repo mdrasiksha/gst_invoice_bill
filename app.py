@@ -7,6 +7,7 @@ from pathlib import Path
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
+from sqlalchemy.exc import IntegrityError
 from werkzeug.utils import secure_filename
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import text
@@ -219,6 +220,11 @@ def log_unhandled_exception(exc):
     return render_template("error.html"), 500
 
 
+@app.errorhandler(404)
+def not_found(_exc):
+    return render_template("error.html", title="Not found", message="The requested record was not found or you do not have access to it."), 404
+
+
 def save_upload(upload, upload_dir: Path, allowed_extensions: set[str], label: str) -> str:
     if not upload or not upload.filename: return ""
     suffix = Path(upload.filename).suffix.lower()
@@ -264,7 +270,8 @@ def update_company_from_form(company: Company):
     signature = save_signature(request.files.get("signature_image"));
     if signature: company.signature_image_path = signature
     if f.get("remove_signature_image") == "1": company.signature_image_path = ""
-    if not company.company_name or not company.gstin or not company.address: raise ValueError("Company name, GSTIN and address are required.")
+    if not all([company.company_name, company.gstin, company.address, company.city, company.state, company.pin_code]):
+        raise ValueError("Company name, GSTIN, address, city, state and PIN code are required.")
 
 
 def next_invoice_number(company_id: int) -> str:
@@ -305,11 +312,17 @@ def invoice_view_context(inv: Invoice) -> dict:
 def register():
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower(); password = request.form.get("password", "")
+        if not email:
+            flash("Email is required.", "danger"); return redirect(url_for("register"))
         if User.query.filter_by(email=email).first(): flash("Email already registered.", "danger"); return redirect(url_for("register"))
         if len(password) < 8: flash("Password must be at least 8 characters.", "danger"); return redirect(url_for("register"))
         company = Company(company_name=request.form.get("company_name", "New Company").strip() or "New Company", gstin="", address="")
         user = User(username=request.form.get("username", email).strip(), email=email, company=company); user.set_password(password)
-        db.session.add_all([company, user]); db.session.commit(); login_user(user); flash("Account created. Complete your company profile.", "success"); return redirect(url_for("company_setup"))
+        try:
+            db.session.add_all([company, user]); db.session.commit()
+        except IntegrityError:
+            db.session.rollback(); flash("Email already registered.", "danger"); return redirect(url_for("register"))
+        login_user(user); flash("Account created. Complete your company profile.", "success"); return redirect(url_for("company_setup"))
     return render_template("auth/register.html")
 
 @app.route("/login", methods=["GET", "POST"])
@@ -444,6 +457,9 @@ def download_pdf(invoice_id):
     if not inv:
         flash("Invoice not found or you do not have access to it.", "warning")
         return redirect(url_for("dashboard"))
+    if not inv.company or not inv.customer:
+        logger.error("Invoice PDF requested for incomplete invoice", extra={"invoice_id": invoice_id})
+        abort(404)
     path = BASE_DIR / inv.pdf_path if inv.pdf_path else Path(pdf.generate(inv))
     if not path.exists():
         path = Path(pdf.generate(inv))
