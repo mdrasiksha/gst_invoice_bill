@@ -27,8 +27,14 @@ PDF_DIR = BASE_DIR / "uploads" / "invoices"
 ALLOWED_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 ALLOWED_QR_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 ALLOWED_SIGNATURE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
-FREE_MONTHLY_INVOICE_LIMIT = 50
-INVOICE_LIMIT_MESSAGE = "Monthly invoice limit reached. You can create up to 50 invoices per month."
+PLAN_MONTHLY_INVOICE_LIMITS = {"free": 50, "starter": 300, "pro": None, "business": None}
+PRICING_PLANS = [
+    {"key": "free", "name": "Free", "price": "0", "limit": "50 invoices/month", "note": "Best for trying Smart GST."},
+    {"key": "starter", "name": "Starter", "price": "199", "limit": "300 invoices/month", "note": "For growing invoice volume."},
+    {"key": "pro", "name": "Pro", "price": "499", "limit": "Unlimited invoices", "note": "For regular business use."},
+    {"key": "business", "name": "Business", "price": "999", "limit": "Unlimited invoices + future multi-user support", "note": "For teams preparing to scale."},
+]
+INVOICE_LIMIT_MESSAGE = "Monthly invoice limit reached. Please upgrade your plan to continue creating invoices."
 
 
 def configure_logging(app: Flask) -> None:
@@ -333,8 +339,8 @@ def current_month_bounds() -> tuple[datetime, datetime]:
     return datetime.combine(month_start_date, datetime.min.time()), datetime.combine(next_month_date, datetime.min.time())
 
 
-def free_monthly_invoice_count(user: User) -> int:
-    """Count invoices created by a free-plan user in the current calendar month."""
+def monthly_invoice_count(user: User) -> int:
+    """Count invoices created by a user in the current calendar month."""
     month_start, next_month = current_month_bounds()
     return Invoice.query.filter(
         Invoice.created_by_user_id == user.id,
@@ -343,11 +349,18 @@ def free_monthly_invoice_count(user: User) -> int:
     ).count()
 
 
+def invoice_limit_for_user(user: User) -> int | None:
+    """Return the monthly invoice limit for a user's plan, or None for unlimited."""
+    if getattr(user, "is_admin", False):
+        return None
+    plan = (getattr(user, "plan", "free") or "free").lower()
+    return PLAN_MONTHLY_INVOICE_LIMITS.get(plan, PLAN_MONTHLY_INVOICE_LIMITS["free"])
+
+
 def invoice_limit_reached(user: User) -> bool:
-    """Return True when a non-admin free user has reached the monthly invoice limit."""
-    if getattr(user, "is_admin", False) or getattr(user, "plan", "free") != "free":
-        return False
-    return free_monthly_invoice_count(user) >= FREE_MONTHLY_INVOICE_LIMIT
+    """Return True when the user's monthly invoice quota has been reached."""
+    limit = invoice_limit_for_user(user)
+    return limit is not None and monthly_invoice_count(user) >= limit
 
 def next_invoice_number(company_id: int) -> str:
     year = date.today().year; prefix = f"INV-{year}-"
@@ -417,6 +430,12 @@ def logout(): logout_user(); flash("Logged out securely.", "success"); return re
 def forgot_password():
     if request.method == "POST": flash("If the email exists, a reset link will be sent by the configured mail provider.", "info")
     return render_template("auth/forgot_password.html")
+
+@app.route("/pricing")
+def pricing():
+    current_plan = (getattr(current_user, "plan", "free") or "free") if current_user.is_authenticated else "free"
+    return render_template("pricing.html", plans=PRICING_PLANS, current_plan=current_plan)
+
 
 @app.route("/")
 @login_required
