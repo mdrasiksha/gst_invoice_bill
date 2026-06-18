@@ -5,12 +5,13 @@ import logging, os, secrets, sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import click
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 from sqlalchemy.exc import IntegrityError
 from werkzeug.utils import secure_filename
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy import text
+from sqlalchemy import func, text
 
 from gst_invoice.invoice_generator import calculate_invoice
 from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, User, db
@@ -96,7 +97,7 @@ def create_app() -> Flask:
             token = session.get("csrf_token")
             if not token or token != request.form.get("csrf_token"):
                 abort(400, "Invalid CSRF token")
-        if current_user.is_authenticated and request.endpoint not in {"logout", "company_setup", "static", "uploaded_file"}:
+        if current_user.is_authenticated and request.endpoint not in {"logout", "company_setup", "static", "uploaded_file", "admin_dashboard"}:
             company = ensure_user_company(current_user)
             if not company.profile_complete:
                 return redirect(url_for("company_setup"))
@@ -105,6 +106,16 @@ def create_app() -> Flask:
     def inject_globals():
         session.setdefault("csrf_token", secrets.token_urlsafe(32))
         return {"csrf_token": session["csrf_token"]}
+
+    @app.cli.command("create-admin")
+    @click.option("--email", required=True, help="Admin email address.")
+    @click.option("--password", required=True, help="Admin password.")
+    def create_admin_command(email: str, password: str) -> None:
+        """Create or promote an admin user without deleting existing data."""
+        user, created, password_updated = create_or_update_admin(email, password)
+        action = "Created" if created else "Updated"
+        password_note = " Password updated." if password_updated else " Password unchanged."
+        click.echo(f"{action} admin user {user.email}.{password_note}")
 
     with app.app_context():
         initialize_database()
@@ -176,6 +187,37 @@ def ensure_database_columns() -> None:
         add_column("invoices", "round_off", "FLOAT DEFAULT 0")
         add_column("invoices", "created_by_user_id", "INTEGER")
 
+
+
+def create_or_update_admin(email: str, password: str) -> tuple[User, bool, bool]:
+    """Create a new admin or promote an existing user safely.
+
+    Existing users keep all company/customer/invoice data. Their password is
+    changed only when the supplied password does not already match.
+    """
+    admin_email = (email or "").strip().lower()
+    if not admin_email:
+        raise click.ClickException("Admin email is required.")
+    if not password:
+        raise click.ClickException("Admin password is required.")
+
+    user = User.query.filter_by(email=admin_email).first()
+    password_updated = False
+    if user:
+        user.is_admin = True
+        if not user.check_password(password):
+            user.set_password(password)
+            password_updated = True
+        db.session.add(user)
+        db.session.commit()
+        return user, False, password_updated
+
+    company = Company(company_name="Smart GST Admin", gstin="", address="")
+    user = User(username=admin_email.split("@", 1)[0] or "admin", email=admin_email, company=company, is_admin=True)
+    user.set_password(password)
+    db.session.add_all([company, user])
+    db.session.commit()
+    return user, True, True
 
 def ensure_admin_user() -> None:
     """Optionally create the configured admin account once.
@@ -514,16 +556,49 @@ def delete_invoice(invoice_id):
 
 @app.route("/admin")
 @login_required
+def admin_index():
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/dashboard")
+@login_required
 def admin_dashboard():
     if not current_user.is_admin:
         abort(403)
+
+    month_start, next_month = current_month_bounds()
     stats = {
         "users": User.query.count(),
         "companies": Company.query.count(),
         "invoices": Invoice.query.count(),
+        "monthly_invoices": Invoice.query.filter(Invoice.created_at >= month_start, Invoice.created_at < next_month).count(),
     }
-    users = User.query.order_by(User.id.desc()).limit(50).all()
-    return render_template("admin_dashboard.html", stats=stats, users=users)
+    latest_users = User.query.order_by(User.created_at.desc(), User.id.desc()).limit(10).all()
+    latest_invoices = Invoice.query.order_by(Invoice.created_at.desc(), Invoice.id.desc()).limit(10).all()
+    user_invoice_counts = (
+        db.session.query(User, func.count(Invoice.id).label("invoice_count"))
+        .outerjoin(Invoice, Invoice.created_by_user_id == User.id)
+        .group_by(User.id)
+        .order_by(func.count(Invoice.id).desc(), User.id.desc())
+        .limit(20)
+        .all()
+    )
+    company_invoice_counts = (
+        db.session.query(Company, func.count(Invoice.id).label("invoice_count"))
+        .outerjoin(Invoice, Invoice.company_id == Company.id)
+        .group_by(Company.id)
+        .order_by(func.count(Invoice.id).desc(), Company.id.desc())
+        .limit(20)
+        .all()
+    )
+    return render_template(
+        "admin_dashboard.html",
+        stats=stats,
+        latest_users=latest_users,
+        latest_invoices=latest_invoices,
+        user_invoice_counts=user_invoice_counts,
+        company_invoice_counts=company_invoice_counts,
+    )
 
 
 if __name__ == "__main__": app.run(debug=True)
