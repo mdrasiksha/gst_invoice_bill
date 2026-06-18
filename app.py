@@ -38,6 +38,7 @@ PRICING_PLANS = [
     {"key": "business", "name": "Business", "price": "999", "limit": "Unlimited invoices + future multi-user support", "note": "For teams preparing to scale."},
 ]
 INVOICE_LIMIT_MESSAGE = "Monthly invoice limit reached. Please upgrade your plan to continue creating invoices."
+PUBLIC_ENDPOINTS = {"about", "contact", "privacy_policy", "terms_and_conditions", "pricing", "robots_txt", "sitemap_xml"}
 
 
 def configure_logging(app: Flask) -> None:
@@ -106,7 +107,7 @@ def create_app() -> Flask:
             token = session.get("csrf_token")
             if not token or token != request.form.get("csrf_token"):
                 abort(400, "Invalid CSRF token")
-        if current_user.is_authenticated and request.endpoint not in {"logout", "company_setup", "static", "uploaded_file", "admin_index", "admin_dashboard"}:
+        if current_user.is_authenticated and request.endpoint not in PUBLIC_ENDPOINTS | {"logout", "company_setup", "static", "uploaded_file", "admin_index", "admin_dashboard"}:
             company = ensure_user_company(current_user)
             if not company.profile_complete:
                 return redirect(url_for("company_setup"))
@@ -425,6 +426,36 @@ def logout(): logout_user(); flash("Logged out securely.", "success"); return re
 def forgot_password():
     if request.method == "POST": flash("If the email exists, a reset link will be sent by the configured mail provider.", "info")
     return render_template("auth/forgot_password.html")
+
+@app.route("/about")
+def about():
+    return render_template("about.html")
+
+
+@app.route("/contact")
+def contact():
+    return render_template("contact.html")
+
+
+@app.route("/privacy-policy")
+def privacy_policy():
+    return render_template("privacy_policy.html")
+
+
+@app.route("/terms-and-conditions")
+def terms_and_conditions():
+    return render_template("terms_and_conditions.html")
+
+
+@app.route("/robots.txt")
+def robots_txt():
+    return send_from_directory(BASE_DIR, "robots.txt", mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    return send_from_directory(BASE_DIR, "sitemap.xml", mimetype="application/xml")
+
 
 @app.route("/pricing")
 def pricing():
