@@ -38,7 +38,7 @@ PRICING_PLANS = [
     {"key": "business", "name": "Business", "price": "999", "limit": "Unlimited invoices + future multi-user support", "note": "For teams preparing to scale."},
 ]
 INVOICE_LIMIT_MESSAGE = "Monthly invoice limit reached. Please upgrade your plan to continue creating invoices."
-PUBLIC_ENDPOINTS = {"landing", "about", "contact", "privacy_policy", "terms_and_conditions", "pricing", "robots_txt", "sitemap_xml"}
+PUBLIC_ENDPOINTS = {"landing", "about", "contact", "contact_us", "privacy_policy", "terms_and_conditions", "pricing", "robots_txt", "sitemap_xml"}
 
 
 def configure_logging(app: Flask) -> None:
@@ -433,7 +433,8 @@ def about():
 
 
 @app.route("/contact")
-def contact():
+@app.route("/contact-us")
+def contact_us():
     return render_template("contact.html")
 
 
