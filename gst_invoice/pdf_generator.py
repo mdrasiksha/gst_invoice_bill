@@ -164,7 +164,7 @@ class PDFGenerator:
         sig = Table([["Customer Signature", "Company Seal", signature_parts]], colWidths=[60*mm, 52*mm, 70*mm], rowHeights=[28*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "BOTTOM"), ("ALIGN", (0,0), (-1,-1), "CENTER"), ("FONTNAME", (0,0), (1,0), bold), ("FONTSIZE", (0,0), (-1,-1), 8), ("TOPPADDING", (2,0), (2,0), 4), ("BOTTOMPADDING", (2,0), (2,0), 4)])
         story.append(KeepTogether(sig))
         def page_footer(canvas: Canvas, _doc):
-            canvas.saveState(); canvas.setFont(font, 8); canvas.setFillColor(colors.HexColor("#64748B")); canvas.drawString(12*mm, 8*mm, f"Smart GST · {invoice.company.company_name} · {invoice.invoice_number}"); canvas.drawRightString(198*mm, 8*mm, f"Page {canvas.getPageNumber()}"); canvas.restoreState()
+            canvas.saveState(); canvas.setFont(font, 8); canvas.setFillColor(colors.HexColor("#64748B")); canvas.drawString(12*mm, 8*mm, f"GST Smart · {invoice.company.company_name} · {invoice.invoice_number}"); canvas.drawRightString(198*mm, 8*mm, f"Page {canvas.getPageNumber()}"); canvas.restoreState()
         doc.build(story, onFirstPage=page_footer, onLaterPages=page_footer)
 
     def _generate_minimal_pdf(self, invoice: Invoice, path: Path) -> None:

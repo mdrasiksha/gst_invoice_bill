@@ -32,7 +32,7 @@ PLAN_MONTHLY_INVOICE_LIMITS = {"free": 50, "starter": 300, "pro": None, "busines
 DEFAULT_ADMIN_EMAIL = "mototest2022@gmail.com"
 DEFAULT_ADMIN_PASSWORD = "Moto@2020"
 PRICING_PLANS = [
-    {"key": "free", "name": "Free", "price": "0", "limit": "50 invoices/month", "note": "Best for trying Smart GST."},
+    {"key": "free", "name": "Free", "price": "0", "limit": "50 invoices/month", "note": "Best for trying GST Smart."},
     {"key": "starter", "name": "Starter", "price": "199", "limit": "300 invoices/month", "note": "For growing invoice volume."},
     {"key": "pro", "name": "Pro", "price": "499", "limit": "Unlimited invoices", "note": "For regular business use."},
     {"key": "business", "name": "Business", "price": "999", "limit": "Unlimited invoices + future multi-user support", "note": "For teams preparing to scale."},
@@ -85,7 +85,7 @@ def create_app() -> Flask:
     app = Flask(__name__)
     configure_logging(app)
     app.config.update(
-        SECRET_KEY=os.environ.get("SECRET_KEY", os.environ.get("GST_INVOICE_SECRET_KEY", secrets.token_hex(32))),
+        SECRET_KEY=os.environ.get("SECRET_KEY", os.environ.get("GST_SMART_SECRET_KEY", os.environ.get("GST_INVOICE_SECRET_KEY", secrets.token_hex(32)))),
         SQLALCHEMY_DATABASE_URI=database_uri(),
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         MAX_CONTENT_LENGTH=int(os.environ.get("MAX_CONTENT_LENGTH", 2 * 1024 * 1024)),
@@ -223,7 +223,7 @@ def create_or_update_admin(email: str, password: str, *, update_existing_passwor
         db.session.commit()
         return user, False, password_updated
 
-    company = Company(company_name="Smart GST Admin", gstin="", address="")
+    company = Company(company_name="GST Smart Admin", gstin="", address="")
     user = User(username=admin_email.split("@", 1)[0] or "admin", email=admin_email, company=company, is_admin=True)
     user.set_password(password)
     db.session.add_all([company, user])

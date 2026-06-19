@@ -1,1 +1,1 @@
-"""Smart GST desktop application."""
+"""GST Smart desktop application."""

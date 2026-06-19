@@ -1,4 +1,4 @@
-"""SQLite persistence layer for the Smart GST."""
+"""SQLite persistence layer for the GST Smart."""
 from __future__ import annotations
 
 import sqlite3

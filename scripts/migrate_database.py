@@ -1,4 +1,4 @@
-"""Run Smart GST safe database migrations for deployed environments.
+"""Run GST Smart safe database migrations for deployed environments.
 
 This script is intentionally additive: it creates missing tables, adds missing
 backwards-compatible columns, and optionally bootstraps the configured admin
