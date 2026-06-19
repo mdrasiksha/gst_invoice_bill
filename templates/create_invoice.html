@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Create Invoice | Smart GST{% endblock %}
+{% block title %}Create Invoice | GST Smart{% endblock %}
 {% block content %}
 <form id="invoiceForm" method="post" class="needs-validation" novalidate>
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <div id="invoiceAlert" class="alert d-none" role="alert"></div>
   <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
-    <div><p class="text-muted mb-1">Smart GST → Live Preview → PDF</p><h1 class="h3 mb-0">Create Invoice</h1><p class="text-muted mb-0">Create professional GST invoices in under 30 seconds.</p></div>
+    <div><p class="text-muted mb-1">GST Smart → Live Preview → PDF</p><h1 class="h3 mb-0">Create Invoice</h1><p class="text-muted mb-0">Create professional GST invoices in under 30 seconds.</p></div>
     <button class="btn btn-success px-4" id="generatePdfBtn"><i class="bi bi-file-earmark-pdf"></i> Generate PDF</button>
   </div>
   <div class="row g-4">

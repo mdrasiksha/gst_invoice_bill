@@ -1,4 +1,4 @@
-"""Tkinter desktop UI for Smart GST."""
+"""Tkinter desktop UI for GST Smart."""
 from __future__ import annotations
 
 import shutil
@@ -17,7 +17,7 @@ from .utils import parse_date, state_code_from_gstin, validate_email, validate_g
 class GSTInvoiceApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Smart GST")
+        self.title("GST Smart")
         self.geometry("1180x760")
         self.minsize(1000, 650)
         self.db = Database()

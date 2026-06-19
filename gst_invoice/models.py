@@ -1,4 +1,4 @@
-"""SQLAlchemy models for the Smart GST invoice app."""
+"""SQLAlchemy models for the GST Smart invoice app."""
 from __future__ import annotations
 
 from datetime import date, datetime

@@ -1,5 +1,5 @@
-{% extends "base.html" %}{% block title %}Admin Dashboard | Smart GST{% endblock %}{% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3"><div><p class="text-muted mb-1">Admin Only</p><h1 class="h3 mb-0">Smart GST Admin Dashboard</h1></div><a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Back to app</a></div>
+{% extends "base.html" %}{% block title %}Admin Dashboard | GST Smart{% endblock %}{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3"><div><p class="text-muted mb-1">Admin Only</p><h1 class="h3 mb-0">GST Smart Admin Dashboard</h1></div><a class="btn btn-outline-secondary" href="{{ url_for('dashboard') }}">Back to app</a></div>
 <div class="row g-4 mb-4">
   <div class="col-md-3"><div class="metric-card"><span>Total Users</span><strong>{{ stats.users }}</strong></div></div>
   <div class="col-md-3"><div class="metric-card"><span>Total Companies</span><strong>{{ stats.companies }}</strong></div></div>
