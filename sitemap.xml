@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://YOUR-DOMAIN/</loc></url>
-  <url><loc>https://YOUR-DOMAIN/login</loc></url>
-  <url><loc>https://YOUR-DOMAIN/register</loc></url>
-  <url><loc>https://YOUR-DOMAIN/about</loc></url>
-  <url><loc>https://YOUR-DOMAIN/contact</loc></url>
-  <url><loc>https://YOUR-DOMAIN/privacy-policy</loc></url>
-  <url><loc>https://YOUR-DOMAIN/terms-and-conditions</loc></url>
-  <url><loc>https://YOUR-DOMAIN/pricing</loc></url>
+  <url><loc>https://gstsmart.com/</loc></url>
+  <url><loc>https://gstsmart.com/login</loc></url>
+  <url><loc>https://gstsmart.com/register</loc></url>
+  <url><loc>https://gstsmart.com/about</loc></url>
+  <url><loc>https://gstsmart.com/contact</loc></url>
+  <url><loc>https://gstsmart.com/privacy-policy</loc></url>
+  <url><loc>https://gstsmart.com/terms-and-conditions</loc></url>
+  <url><loc>https://gstsmart.com/pricing</loc></url>
 </urlset>
