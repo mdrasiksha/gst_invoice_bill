@@ -83,33 +83,32 @@ class PDFGenerator:
 
         doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=12*mm, leftMargin=12*mm, topMargin=13*mm, bottomMargin=18*mm)
         story = []
+        logo = None
         logo_path = image_path(invoice.company.logo_path)
         logo_box = 30*mm
         if logo_path and logo_path.exists():
             try:
-                logo_content = fitted_image(logo_path, logo_box, logo_box)
+                logo = Table(
+                    [[fitted_image(logo_path, logo_box, logo_box)]],
+                    colWidths=[logo_box],
+                    style=[
+                        ("BOX", (0,0), (-1,-1), 0.35, border),
+                        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+                        ("ALIGN", (0,0), (-1,-1), "CENTER"),
+                        ("LEFTPADDING", (0,0), (-1,-1), 0),
+                        ("RIGHTPADDING", (0,0), (-1,-1), 0),
+                        ("TOPPADDING", (0,0), (-1,-1), 0),
+                        ("BOTTOMPADDING", (0,0), (-1,-1), 0),
+                    ],
+                )
             except Exception:
                 logger.warning("Skipping invalid company logo", exc_info=True, extra={"company_id": invoice.company_id})
-                logo_content = Paragraph("<b>LOGO</b>", styles["Section"])
-        else:
-            logo_content = Paragraph("<b>LOGO</b>", styles["Section"])
-        logo = Table(
-            [[logo_content]],
-            colWidths=[logo_box],
-            rowHeights=[logo_box],
-            style=[
-                ("BOX", (0,0), (-1,-1), 0.35, border),
-                ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-                ("ALIGN", (0,0), (-1,-1), "CENTER"),
-                ("LEFTPADDING", (0,0), (-1,-1), 0),
-                ("RIGHTPADDING", (0,0), (-1,-1), 0),
-                ("TOPPADDING", (0,0), (-1,-1), 0),
-                ("BOTTOMPADDING", (0,0), (-1,-1), 0),
-            ],
-        )
         company = Paragraph(f"<b>{esc(invoice.company.company_name)}</b><br/><font size='8'>GSTIN: {esc(invoice.company.gstin)}<br/>{esc(company_address())}<br/>Phone: {esc(invoice.company.phone)} &nbsp; Email: {esc(invoice.company.email)}</font>", styles["Company"])
         badge = Table([[Paragraph("TAX INVOICE", styles["Badge"])]], colWidths=[38*mm], rowHeights=[12*mm], style=[("BACKGROUND", (0,0), (-1,-1), blue), ("VALIGN", (0,0), (-1,-1), "MIDDLE")])
-        header = Table([[logo, company, badge]], colWidths=[36*mm, 104*mm, 42*mm])
+        if logo:
+            header = Table([[logo, company, badge]], colWidths=[36*mm, 104*mm, 42*mm])
+        else:
+            header = Table([[company, badge]], colWidths=[140*mm, 42*mm])
         header.setStyle(TableStyle([("BOX", (0,0), (-1,-1), 0.8, border), ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]))
         story += [header, Spacer(1, 4*mm)]
 
@@ -140,7 +139,7 @@ class PDFGenerator:
         story += [Table([[words, summary]], colWidths=[98*mm, 84*mm], style=[("VALIGN", (0,0), (-1,-1), "TOP")]), Spacer(1, 4*mm)]
 
         bank = Paragraph(f"<b>Bank Details</b><br/>Bank Name: {esc(invoice.company.bank_name)}<br/>Account Number: {esc(invoice.company.account_number)}<br/>IFSC: {esc(invoice.company.ifsc)}<br/>UPI ID: {esc(invoice.company.upi_id)}", styles["Small"])
-        qr_cell = ""
+        qr_cell = None
         qr_path = image_path(getattr(invoice.company, "upi_qr_image_url", ""))
         if qr_path and qr_path.exists():
             try:
@@ -149,7 +148,17 @@ class PDFGenerator:
                 logger.warning("Skipping invalid UPI QR image", exc_info=True, extra={"company_id": invoice.company_id})
         terms_text = esc(getattr(invoice, "terms", "") or "1. Payment is due on or before the due date.\n2. Goods/services once sold will not be taken back unless agreed in writing.\n3. Subject to local jurisdiction.")
         terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{terms_text}", styles["Small"])
-        story += [Table([[bank, qr_cell, terms]], colWidths=[67*mm, 38*mm, 77*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "TOP"), ("ALIGN", (1,0), (1,0), "CENTER"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("LEFTPADDING", (0,0), (-1,-1), 7), ("RIGHTPADDING", (0,0), (-1,-1), 7), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]), Spacer(1, 5*mm)]
+        payment_cells = [bank]
+        payment_widths = [82*mm]
+        if qr_cell:
+            payment_cells.append(qr_cell)
+            payment_widths.append(34*mm)
+        payment_cells.append(terms)
+        payment_widths.append(182*mm - sum(payment_widths))
+        payment_style = [("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "TOP"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("LEFTPADDING", (0,0), (-1,-1), 7), ("RIGHTPADDING", (0,0), (-1,-1), 7), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]
+        if qr_cell:
+            payment_style.append(("ALIGN", (1,0), (1,0), "CENTER"))
+        story += [Table([payment_cells], colWidths=payment_widths, style=payment_style), Spacer(1, 5*mm)]
 
         signature_parts = []
         signature_path = image_path(getattr(invoice.company, "signature_image_path", ""))
@@ -158,11 +167,12 @@ class PDFGenerator:
                 signature_parts.append(Table([[fitted_image(signature_path, 42*mm, 14*mm)]], colWidths=[56*mm], style=[("ALIGN", (0,0), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("LEFTPADDING", (0,0), (-1,-1), 0), ("RIGHTPADDING", (0,0), (-1,-1), 0), ("TOPPADDING", (0,0), (-1,-1), 0), ("BOTTOMPADDING", (0,0), (-1,-1), 0)]))
             except Exception:
                 logger.warning("Skipping invalid signature image", exc_info=True, extra={"company_id": invoice.company_id})
-        if getattr(invoice.company, "authorized_signature_name", ""):
-            signature_parts.append(Paragraph(f"<b>{esc(invoice.company.authorized_signature_name)}</b>", styles["SmallCenter"]))
-        signature_parts.append(Paragraph("<b>Authorized Signature</b>", styles["SmallCenter"]))
-        sig = Table([["Customer Signature", "Company Seal", signature_parts]], colWidths=[60*mm, 52*mm, 70*mm], rowHeights=[28*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "BOTTOM"), ("ALIGN", (0,0), (-1,-1), "CENTER"), ("FONTNAME", (0,0), (1,0), bold), ("FONTSIZE", (0,0), (-1,-1), 8), ("TOPPADDING", (2,0), (2,0), 4), ("BOTTOMPADDING", (2,0), (2,0), 4)])
-        story.append(KeepTogether(sig))
+        if signature_parts:
+            if getattr(invoice.company, "authorized_signature_name", ""):
+                signature_parts.append(Paragraph(f"<b>{esc(invoice.company.authorized_signature_name)}</b>", styles["SmallCenter"]))
+            signature_parts.append(Paragraph("<b>Authorized Signature</b>", styles["SmallCenter"]))
+            sig = Table([[signature_parts]], colWidths=[70*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "BOTTOM"), ("ALIGN", (0,0), (-1,-1), "CENTER"), ("FONTSIZE", (0,0), (-1,-1), 8), ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4)])
+            story.append(KeepTogether(Table([["", sig]], colWidths=[112*mm, 70*mm], style=[("VALIGN", (0,0), (-1,-1), "TOP")])))
         def page_footer(canvas: Canvas, _doc):
             canvas.saveState(); canvas.setFont(font, 8); canvas.setFillColor(colors.HexColor("#64748B")); canvas.drawString(12*mm, 8*mm, f"GST Smart · {invoice.company.company_name} · {invoice.invoice_number}"); canvas.drawRightString(198*mm, 8*mm, f"Page {canvas.getPageNumber()}"); canvas.restoreState()
         doc.build(story, onFirstPage=page_footer, onLaterPages=page_footer)
