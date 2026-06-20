@@ -67,7 +67,8 @@ class PDFGenerator:
         def esc(value) -> str:
             return str(value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
         def money(value) -> str: return f"₹{float(value or 0):,.2f}"
-        def company_address() -> str: return ", ".join([p for p in [invoice.company.address, invoice.company.city, invoice.company.state, invoice.company.pin_code] if p])
+        def present(value) -> bool: return bool(str(value or "").strip())
+        def company_address() -> str: return ", ".join([p for p in [invoice.company.address, invoice.company.city, invoice.company.state, invoice.company.pin_code] if present(p)])
         def image_path(value: str | None) -> Path | None:
             if not value: return None
             p = Path(value)
@@ -103,7 +104,22 @@ class PDFGenerator:
                 )
             except Exception:
                 logger.warning("Skipping invalid company logo", exc_info=True, extra={"company_id": invoice.company_id})
-        company = Paragraph(f"<b>{esc(invoice.company.company_name)}</b><br/><font size='8'>GSTIN: {esc(invoice.company.gstin)}<br/>{esc(company_address())}<br/>Phone: {esc(invoice.company.phone)} &nbsp; Email: {esc(invoice.company.email)}</font>", styles["Company"])
+        company_lines = [f"<b>{esc(invoice.company.company_name)}</b>"]
+        company_detail_lines = []
+        if present(invoice.company.gstin):
+            company_detail_lines.append(f"GSTIN: {esc(invoice.company.gstin)}")
+        if present(company_address()):
+            company_detail_lines.append(esc(company_address()))
+        contact_bits = []
+        if present(invoice.company.phone):
+            contact_bits.append(f"Phone: {esc(invoice.company.phone)}")
+        if present(invoice.company.email):
+            contact_bits.append(f"Email: {esc(invoice.company.email)}")
+        if contact_bits:
+            company_detail_lines.append(" &nbsp; ".join(contact_bits))
+        if company_detail_lines:
+            company_lines.append(f"<font size='8'>{'<br/>'.join(company_detail_lines)}</font>")
+        company = Paragraph("<br/>".join(company_lines), styles["Company"])
         badge = Table([[Paragraph("TAX INVOICE", styles["Badge"])]], colWidths=[38*mm], rowHeights=[12*mm], style=[("BACKGROUND", (0,0), (-1,-1), blue), ("VALIGN", (0,0), (-1,-1), "MIDDLE")])
         if logo:
             header = Table([[logo, company, badge]], colWidths=[36*mm, 104*mm, 42*mm])
@@ -115,8 +131,16 @@ class PDFGenerator:
         meta_rows = [["Invoice Number", invoice.invoice_number, "Invoice Date", invoice.invoice_date.strftime("%d-%m-%Y")], ["Due Date", invoice.due_date.strftime("%d-%m-%Y"), "Place of Supply", invoice.place_of_supply or invoice.company.state], ["Supply State Code", invoice.state_code, "Tax Type", "CGST + SGST" if invoice.is_intrastate else "IGST"]]
         meta = Table(meta_rows, colWidths=[35*mm, 56*mm, 35*mm, 56*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("BACKGROUND", (0,0), (0,-1), light), ("BACKGROUND", (2,0), (2,-1), light), ("FONTNAME", (0,0), (-1,-1), font), ("FONTNAME", (0,0), (0,-1), bold), ("FONTNAME", (2,0), (2,-1), bold), ("FONTSIZE", (0,0), (-1,-1), 8)])
         story += [meta, Spacer(1, 4*mm)]
-        customer_address = ", ".join([p for p in [invoice.customer.address, invoice.customer.city, invoice.customer.state, invoice.customer.pin_code] if p])
-        bill = f"<b>Bill To</b><br/>{esc(invoice.customer.customer_name)}<br/>GSTIN: {esc(invoice.customer.gstin or 'Unregistered')}<br/>{esc(customer_address)}<br/>Phone: {esc(invoice.customer.phone)}<br/>Email: {esc(invoice.customer.email)}"
+        customer_address = ", ".join([p for p in [invoice.customer.address, invoice.customer.city, invoice.customer.state, invoice.customer.pin_code] if present(p)])
+        bill_lines = ["<b>Bill To</b>", esc(invoice.customer.customer_name)]
+        bill_lines.append(f"GSTIN: {esc(invoice.customer.gstin or 'Unregistered')}")
+        if present(customer_address):
+            bill_lines.append(esc(customer_address))
+        if present(invoice.customer.phone):
+            bill_lines.append(f"Phone: {esc(invoice.customer.phone)}")
+        if present(invoice.customer.email):
+            bill_lines.append(f"Email: {esc(invoice.customer.email)}")
+        bill = "<br/>".join(bill_lines)
         story += [Table([[Paragraph(bill, styles["Small"])]], colWidths=[182*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 8), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]), Spacer(1, 4*mm)]
 
         data = [["Sr No", "Description", "HSN/SAC", "Qty", "Unit Price", "GST %", "Amount"]]
@@ -138,7 +162,14 @@ class PDFGenerator:
         words = Paragraph(f"<b>Amount in Words:</b><br/>{esc(amount_to_words(invoice.grand_total))}", styles["Small"])
         story += [Table([[words, summary]], colWidths=[98*mm, 84*mm], style=[("VALIGN", (0,0), (-1,-1), "TOP")]), Spacer(1, 4*mm)]
 
-        bank = Paragraph(f"<b>Bank Details</b><br/>Bank Name: {esc(invoice.company.bank_name)}<br/>Account Number: {esc(invoice.company.account_number)}<br/>IFSC: {esc(invoice.company.ifsc)}<br/>UPI ID: {esc(invoice.company.upi_id)}", styles["Small"])
+        bank_fields = [
+            ("Bank Name", invoice.company.bank_name),
+            ("Account Number", invoice.company.account_number),
+            ("IFSC", invoice.company.ifsc),
+            ("UPI ID", invoice.company.upi_id),
+        ]
+        bank_lines = [f"{label}: {esc(value)}" for label, value in bank_fields if present(value)]
+        bank = Paragraph(f"<b>Bank Details</b><br/>{'<br/>'.join(bank_lines)}", styles["Small"]) if bank_lines else None
         qr_cell = None
         qr_path = image_path(getattr(invoice.company, "upi_qr_image_url", ""))
         if qr_path and qr_path.exists():
@@ -148,8 +179,11 @@ class PDFGenerator:
                 logger.warning("Skipping invalid UPI QR image", exc_info=True, extra={"company_id": invoice.company_id})
         terms_text = esc(getattr(invoice, "terms", "") or "1. Payment is due on or before the due date.\n2. Goods/services once sold will not be taken back unless agreed in writing.\n3. Subject to local jurisdiction.")
         terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{terms_text}", styles["Small"])
-        payment_cells = [bank]
-        payment_widths = [82*mm]
+        payment_cells = []
+        payment_widths = []
+        if bank:
+            payment_cells.append(bank)
+            payment_widths.append(82*mm)
         if qr_cell:
             payment_cells.append(qr_cell)
             payment_widths.append(34*mm)
@@ -157,7 +191,8 @@ class PDFGenerator:
         payment_widths.append(182*mm - sum(payment_widths))
         payment_style = [("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "TOP"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("LEFTPADDING", (0,0), (-1,-1), 7), ("RIGHTPADDING", (0,0), (-1,-1), 7), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]
         if qr_cell:
-            payment_style.append(("ALIGN", (1,0), (1,0), "CENTER"))
+            qr_index = payment_cells.index(qr_cell)
+            payment_style.append(("ALIGN", (qr_index,0), (qr_index,0), "CENTER"))
         story += [Table([payment_cells], colWidths=payment_widths, style=payment_style), Spacer(1, 5*mm)]
 
         signature_parts = []
