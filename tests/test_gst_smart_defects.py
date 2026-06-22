@@ -125,3 +125,47 @@ def test_print_css_one_page_rules_present(client):
     rv = client.get('/static/css/app.css')
     assert b'@page{size:A4;margin:8mm}' in rv.data
     assert b'page-break' not in rv.data.lower()
+
+
+def test_delete_customer_with_no_invoices(client):
+    login(client)
+    with app.app_context():
+        company = Company.query.first()
+        cust = Customer(company_id=company.id, customer_name="Delete Me", gstin="", address="Addr")
+        db.session.add(cust); db.session.commit(); cid = cust.id
+    rv = client.post(f'/customers/{cid}/delete', data={"csrf_token": csrf(client), "customer_id": cid}, follow_redirects=True)
+    assert b'Customer deleted successfully.' in rv.data
+    assert b'GST Smart Dashboard' not in rv.data
+    with app.app_context():
+        assert db.session.get(Customer, cid) is None
+
+
+def test_delete_customer_with_linked_invoices_is_blocked(client):
+    login(client)
+    with app.app_context():
+        inv = make_invoice(); cid = inv.customer_id
+    rv = client.post(f'/customers/{cid}/delete', data={"csrf_token": csrf(client), "customer_id": cid}, follow_redirects=True)
+    assert b'Customer cannot be deleted because invoices are linked.' in rv.data
+    with app.app_context():
+        assert db.session.get(Customer, cid) is not None
+
+
+def test_delete_another_users_customer_is_blocked(client):
+    login(client)
+    with app.app_context():
+        other_company = Company(company_name="Other", gstin="29ABCDE1234F1Z5", address="Addr", city="Mysuru", state="KA", pin_code="570001")
+        other_user = User(username="other", email="other@example.com", company=other_company)
+        other_user.set_password("password123")
+        other_customer = Customer(company=other_company, customer_name="Other Buyer", gstin="", address="Addr")
+        db.session.add_all([other_company, other_user, other_customer]); db.session.commit(); cid = other_customer.id
+    rv = client.post(f'/customers/{cid}/delete', data={"csrf_token": csrf(client), "customer_id": cid}, follow_redirects=True)
+    assert b'Customer not found or you do not have access to it.' in rv.data
+    with app.app_context():
+        assert db.session.get(Customer, cid) is not None
+
+
+def test_delete_invalid_customer_id_shows_message(client):
+    login(client)
+    rv = client.post('/customers/999999/delete', data={"csrf_token": csrf(client), "customer_id": 999999}, follow_redirects=True)
+    assert b'Customer not found or you do not have access to it.' in rv.data
+    assert rv.status_code == 200
