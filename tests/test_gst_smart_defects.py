@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from app import app, db
-from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, User
+from app import app, db, user_description_suggestions
+from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, ProductDescriptionSuggestion, User
 from gst_invoice.utils import INDIAN_STATE_CODES, state_code_from_state, state_name_from_code
 
 
@@ -277,3 +277,31 @@ def test_create_invoice_rejects_state_code_mismatch(client):
     })
     assert rv.status_code == 400
     assert "state does not match the state code" in rv.json["message"]
+
+
+def test_description_suggestions_are_ranked_by_frequency_then_recency(client):
+    login(client)
+    with app.app_context():
+        user = User.query.filter_by(email="user@example.com").one()
+        db.session.add_all([
+            ProductDescriptionSuggestion(user_id=user.id, description="Recent Low Use", normalized_description="recent low use", usage_count=1, last_used_at=datetime(2026, 6, 22, 12, 0, 0)),
+            ProductDescriptionSuggestion(user_id=user.id, description="Older High Use", normalized_description="older high use", usage_count=4, last_used_at=datetime(2026, 6, 20, 12, 0, 0)),
+            ProductDescriptionSuggestion(user_id=user.id, description="Newer High Use", normalized_description="newer high use", usage_count=4, last_used_at=datetime(2026, 6, 21, 12, 0, 0)),
+        ])
+        db.session.commit()
+        suggestions = user_description_suggestions(user.id)
+    assert [item["description"] for item in suggestions[:3]] == ["Newer High Use", "Older High Use", "Recent Low Use"]
+
+
+def test_description_suggestion_dropdown_shows_only_descriptions_and_caps_at_five(client):
+    login(client)
+    rv = client.get('/static/js/invoice.js')
+    js = rv.data.decode()
+    assert '.slice(0,5)' in js
+    assert '>${escapeHtml(item.description)}</button>' in js
+    assert 'HSN/SAC ${item.hsn_sac}' not in js
+    assert '${item.gst_percentage}% GST' not in js
+    assert 'money(item.unit_price)' not in js
+    assert "set('hsn_sac[]',suggestion.hsn_sac)" in js
+    assert "set('unit_price[]',suggestion.unit_price)" in js
+    assert "set('gst_percentage[]',suggestion.gst_percentage)" in js
