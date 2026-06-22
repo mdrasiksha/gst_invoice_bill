@@ -51,7 +51,7 @@ def test_invoice_errors_are_friendly_and_logged(client, caplog):
         "csrf_token": csrf(client), "customer_type": "new", "new_customer_name": "", "invoice_date": "2026-06-22", "due_date": "2026-06-23"
     })
     assert rv.status_code == 400
-    assert rv.json["message"].startswith("Missing customer details")
+    assert rv.json["message"].startswith("Customer Name")
     assert "Invoice generation failed" in caplog.text
 
 
@@ -169,3 +169,59 @@ def test_delete_invalid_customer_id_shows_message(client):
     rv = client.post('/customers/999999/delete', data={"csrf_token": csrf(client), "customer_id": 999999}, follow_redirects=True)
     assert b'Customer not found or you do not have access to it.' in rv.data
     assert rv.status_code == 200
+
+
+def invoice_post_data(**overrides):
+    data = {
+        "customer_type": "new",
+        "new_customer_name": "Walk In Buyer",
+        "new_customer_gstin": "",
+        "new_customer_phone": "",
+        "new_customer_email": "",
+        "new_customer_address": "Buyer Street",
+        "new_customer_city": "Bengaluru",
+        "new_customer_state": "KA",
+        "new_customer_pincode": "560001",
+        "save_customer": "on",
+        "invoice_number": "INV-TEST-001",
+        "state_code": "29",
+        "invoice_date": "2026-06-22",
+        "due_date": "2026-06-23",
+        "place_of_supply": "KA",
+        "item_name[]": "Service",
+        "hsn_sac[]": "9983",
+        "quantity[]": "1",
+        "unit_price[]": "100",
+        "gst_percentage[]": "0.0",
+    }
+    data.update(overrides)
+    return data
+
+
+def test_new_customer_invoice_validation_is_field_specific(client, caplog):
+    login(client)
+    data = invoice_post_data(new_customer_name="", new_customer_address="")
+    data["csrf_token"] = csrf(client)
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data=data)
+    assert rv.status_code == 400
+    assert "Customer Name" in rv.json["message"]
+    assert "Customer Address" in rv.json["message"]
+    assert "Missing customer details" not in rv.json["message"]
+    assert "Invoice generation failed" in caplog.text
+
+
+def test_new_customer_without_gstin_generates_pdf_and_hides_gstin(client):
+    login(client)
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**invoice_post_data(), "csrf_token": csrf(client)})
+    assert rv.status_code == 200
+    assert rv.json["ok"] is True
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-TEST-001").one()
+        invoice_id = inv.id
+        assert inv.customer.gstin == ""
+    preview = client.get(f'/invoice/{invoice_id}')
+    assert b'GSTIN: Unregistered' not in preview.data
+    customers_page = client.get('/customers')
+    assert b'Walk In Buyer' in customers_page.data
+    assert b'Unregistered' not in customers_page.data
+    assert b'Not provided' not in customers_page.data

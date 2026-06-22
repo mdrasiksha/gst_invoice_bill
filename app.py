@@ -17,7 +17,7 @@ from sqlalchemy import func, text
 from gst_invoice.invoice_generator import calculate_invoice
 from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, User, db
 from gst_invoice.pdf_generator import PDFGenerator
-from gst_invoice.utils import amount_to_words, state_code_from_gstin
+from gst_invoice.utils import amount_to_words, state_code_from_gstin, validate_email, validate_gstin, validate_phone
 from gst_invoice.validators import ALLOWED_GST_RATES, parse_gst_rate, parse_positive_float, parse_required_date, validate_customer, validate_invoice_dates, validate_item
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -298,11 +298,49 @@ def save_signature(upload) -> str:
     return save_upload(upload, SIGNATURE_DIR, ALLOWED_SIGNATURE_EXTENSIONS, "E-sign image")
 
 
+
+def build_new_invoice_customer(form) -> Customer:
+    """Validate new-customer invoice fields separately from existing-customer lookup."""
+    required_fields = {
+        "new_customer_name": "Customer Name",
+        "new_customer_address": "Customer Address",
+        "new_customer_city": "Customer City",
+        "new_customer_state": "Customer State",
+        "new_customer_pincode": "Customer Pincode",
+    }
+    values = {name: form.get(name, "").strip() for name in required_fields}
+    missing = [label for name, label in required_fields.items() if not values[name]]
+    if missing:
+        raise ValueError(f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} required for a new customer.")
+
+    gstin = form.get("new_customer_gstin", "").strip().upper()
+    phone = form.get("new_customer_phone", "").strip()
+    email = form.get("new_customer_email", "").strip()
+    if not validate_gstin(gstin, optional=True):
+        raise ValueError("Customer GSTIN is invalid.")
+    if phone and not validate_phone(phone):
+        raise ValueError("Customer phone number is invalid.")
+    if email and not validate_email(email):
+        raise ValueError("Customer email is invalid.")
+
+    return Customer(
+        company_id=current_user.company_id,
+        customer_name=values["new_customer_name"],
+        gstin=gstin,
+        phone=phone,
+        email=email,
+        address=values["new_customer_address"],
+        city=values["new_customer_city"],
+        state=values["new_customer_state"],
+        pin_code=values["new_customer_pincode"],
+        state_code=state_code_from_gstin(gstin) or form.get("state_code", "").strip() or current_user.company.state_code,
+    )
+
 def friendly_invoice_error(exc: Exception) -> str:
     msg = str(exc) or "Server/database issue while generating the invoice."
     low = msg.lower()
-    if "customer" in low or "select a customer" in low:
-        return "Missing customer details. Please select or enter complete customer details."
+    if "select a customer" in low or "customer selection" in low:
+        return "Customer selection is required for an existing customer."
     if "item" in low or "product" in low or "service" in low or "quantity" in low or "unit price" in low:
         return "Missing invoice items. Please add at least one valid invoice item."
     if "gstin" in low or "gst number" in low or "gst rate" in low or "gst percentage" in low:
@@ -629,26 +667,13 @@ def create_invoice():
                 return redirect(url_for("create_invoice"))
             customer_type = request.form.get("customer_type", "new")
             if customer_type == "new":
-                if not request.form.get("new_customer_name", "").strip():
-                    raise ValueError("Customer Name is required for a new customer.")
-                customer = Customer(
-                    company_id=current_user.company_id,
-                    customer_name=request.form.get("new_customer_name", "").strip(),
-                    gstin=request.form.get("new_customer_gstin", "").strip().upper(),
-                    phone=request.form.get("new_customer_phone", "").strip(),
-                    email=request.form.get("new_customer_email", "").strip(),
-                    address=request.form.get("new_customer_address", "").strip(),
-                    city=request.form.get("new_customer_city", "").strip(),
-                    state=request.form.get("new_customer_state", "").strip(),
-                    pin_code=request.form.get("new_customer_pincode", "").strip(),
-                )
-                customer.state_code = state_code_from_gstin(customer.gstin) or request.form.get("state_code", "").strip() or current_user.company.state_code
-                validate_customer(customer)
-                db.session.add(customer)
+                customer = build_new_invoice_customer(request.form)
+                if request.form.get("save_customer"):
+                    db.session.add(customer)
             else:
                 customer_id = request.form.get("customer_id", type=int)
                 if not customer_id:
-                    raise ValueError("Select a customer before generating the PDF.")
+                    raise ValueError("Customer selection is required for an existing customer.")
                 customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first_or_404()
             inv=Invoice(company=current_user.company, customer=customer, created_by_user_id=current_user.id, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=parse_required_date(request.form.get("invoice_date"),"Invoice date"), due_date=parse_required_date(request.form.get("due_date"),"Due date"), place_of_supply=request.form.get("place_of_supply","").strip(), state_code=request.form.get("state_code","").strip() or customer.state_code or current_user.company.state_code)
             setattr(inv, "terms", request.form.get("terms", "").strip())
