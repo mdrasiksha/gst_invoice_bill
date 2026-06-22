@@ -115,6 +115,23 @@ class Customer(db.Model):
     invoices = db.relationship("Invoice", back_populates="customer")
 
 
+class ProductDescriptionSuggestion(db.Model):
+    __tablename__ = "product_description_suggestions"
+    __table_args__ = (db.UniqueConstraint("user_id", "normalized_description", name="uq_user_product_description"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    description = db.Column(db.String(240), nullable=False)
+    normalized_description = db.Column(db.String(240), nullable=False)
+    hsn_sac = db.Column(db.String(30), nullable=True, default="")
+    unit_price = db.Column(db.Float, nullable=True)
+    gst_percentage = db.Column(db.Float, nullable=True)
+    usage_count = db.Column(db.Integer, nullable=False, default=1)
+    last_used_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    user = db.relationship("User", backref=db.backref("product_description_suggestions", cascade="all, delete-orphan"))
+
+
 class Invoice(db.Model):
     __tablename__ = "invoices"
     __table_args__ = (db.UniqueConstraint("company_id", "invoice_number", name="uq_company_invoice_number"),)

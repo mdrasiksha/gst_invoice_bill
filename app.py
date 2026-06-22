@@ -15,7 +15,7 @@ from PIL import Image, UnidentifiedImageError
 from sqlalchemy import func, text
 
 from gst_invoice.invoice_generator import calculate_invoice
-from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, User, db
+from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, ProductDescriptionSuggestion, User, db
 from gst_invoice.pdf_generator import PDFGenerator
 from gst_invoice.utils import amount_to_words, state_code_from_gstin, validate_email, validate_gstin, validate_phone
 from gst_invoice.validators import ALLOWED_GST_RATES, parse_gst_rate, parse_positive_float, parse_required_date, validate_customer, validate_invoice_dates, validate_item
@@ -200,6 +200,52 @@ def ensure_database_columns() -> None:
         add_column("invoices", "created_by_user_id", "INTEGER")
 
 
+
+
+def normalize_description(value: str) -> str:
+    """Normalize item descriptions so duplicate user suggestions are avoided."""
+    return " ".join((value or "").strip().lower().split())
+
+
+def suggestion_payload(suggestion: ProductDescriptionSuggestion) -> dict:
+    """Return a browser-safe product/service suggestion payload."""
+    return {
+        "description": suggestion.description,
+        "hsn_sac": suggestion.hsn_sac or "",
+        "unit_price": suggestion.unit_price if suggestion.unit_price is not None else "",
+        "gst_percentage": suggestion.gst_percentage if suggestion.gst_percentage is not None else "",
+    }
+
+
+def user_description_suggestions(user_id: int) -> list[dict]:
+    """List saved product/service descriptions for the current user only."""
+    suggestions = (
+        ProductDescriptionSuggestion.query.filter_by(user_id=user_id)
+        .order_by(ProductDescriptionSuggestion.last_used_at.desc(), ProductDescriptionSuggestion.usage_count.desc())
+        .limit(200)
+        .all()
+    )
+    return [suggestion_payload(item) for item in suggestions]
+
+
+def remember_description_suggestions(user_id: int, items: list[InvoiceItem]) -> None:
+    """Upsert product/service descriptions after an invoice is generated."""
+    seen: set[str] = set()
+    for item in items:
+        normalized = normalize_description(item.item_name)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        suggestion = ProductDescriptionSuggestion.query.filter_by(user_id=user_id, normalized_description=normalized).first()
+        if suggestion is None:
+            suggestion = ProductDescriptionSuggestion(user_id=user_id, normalized_description=normalized)
+        suggestion.description = item.item_name.strip()
+        suggestion.hsn_sac = item.hsn_sac or ""
+        suggestion.unit_price = item.unit_price
+        suggestion.gst_percentage = item.gst_percentage
+        suggestion.usage_count = (suggestion.usage_count or 0) + 1
+        suggestion.last_used_at = datetime.utcnow()
+        db.session.add(suggestion)
 
 def create_or_update_admin(email: str, password: str, *, update_existing_password: bool = False) -> tuple[User, bool, bool]:
     """Create a new admin or promote an existing user safely.
@@ -683,7 +729,7 @@ def create_invoice():
                 item=InvoiceItem(item_name=name.strip(), hsn_sac=hsn_values[idx].strip() if idx < len(hsn_values) else "", quantity=parse_positive_float(qty_values[idx],"Quantity"), unit_price=parse_positive_float(price_values[idx],"Unit price",allow_zero=True), gst_percentage=parse_gst_rate(gst_values[idx]))
                 validate_item(item); inv.items.append(item)
             if not inv.items: raise ValueError("Add at least one product or service row.")
-            validate_invoice_dates(inv.invoice_date, inv.due_date); calculate_invoice(inv); db.session.add(inv); db.session.flush(); inv.pdf_path=pdf.generate(inv); db.session.commit(); logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
+            validate_invoice_dates(inv.invoice_date, inv.due_date); calculate_invoice(inv); db.session.add(inv); db.session.flush(); inv.pdf_path=pdf.generate(inv); remember_description_suggestions(current_user.id, inv.items); db.session.commit(); logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
             if wants_json:
                 return jsonify({"ok": True, "message": f"Invoice {inv.invoice_number} generated successfully.", "download_url": url_for("download_pdf", invoice_id=inv.id), "filename": f"{inv.invoice_number}.pdf"})
             flash(f"Invoice {inv.invoice_number} saved.", "success"); return redirect(url_for("download_pdf", invoice_id=inv.id))
@@ -694,7 +740,7 @@ def create_invoice():
                 return jsonify({"ok": False, "message": message}), 400
             flash(message, "danger")
     defaults={"invoice_number":next_invoice_number(current_user.company_id),"invoice_date":date.today().isoformat(),"due_date":(date.today()+timedelta(days=15)).isoformat()}
-    return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES)
+    return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES, description_suggestions=user_description_suggestions(current_user.id))
 
 @app.route("/invoice/<int:invoice_id>")
 @app.route("/invoice/view/<int:invoice_id>")
