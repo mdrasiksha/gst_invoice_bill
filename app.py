@@ -589,7 +589,27 @@ def customer_form(customer_id=None):
 @app.route("/customers/<int:customer_id>/delete", methods=["POST"])
 @login_required
 def customer_delete(customer_id):
-    c=Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first_or_404(); db.session.delete(c); db.session.commit(); flash("Customer deleted.", "success"); return redirect(url_for("customers"))
+    try:
+        form_customer_id = request.form.get("customer_id", type=int) or customer_id
+        if form_customer_id != customer_id:
+            flash("Invalid customer delete request.", "warning")
+            return redirect(url_for("customers"))
+        customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first()
+        if not customer:
+            flash("Customer not found or you do not have access to it.", "warning")
+            return redirect(url_for("customers"))
+        linked_invoice_count = Invoice.query.filter_by(company_id=current_user.company_id, customer_id=customer.id).count()
+        if linked_invoice_count:
+            flash("Customer cannot be deleted because invoices are linked.", "warning")
+            return redirect(url_for("customers"))
+        db.session.delete(customer)
+        db.session.commit()
+        flash("Customer deleted successfully.", "success")
+    except Exception:
+        db.session.rollback()
+        logger.exception("Customer delete failed", extra={"user_id": current_user.id, "customer_id": customer_id})
+        flash("Customer could not be deleted. Please try again or contact support.", "danger")
+    return redirect(url_for("customers"))
 
 @app.route("/uploads/<path:filename>")
 @login_required
