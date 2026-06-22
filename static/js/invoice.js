@@ -53,9 +53,9 @@
   function updateDescriptionSuggestions(input){
     const row=input.closest('tr'); const box=row?.querySelector('.description-suggestions'); if(!box) return;
     const q=normalizeText(input.value); if(!q){box.classList.add('d-none');box.innerHTML='';return;}
-    const matches=descriptionSuggestions.filter(item=>normalizeText(item.description).includes(q)).slice(0,8);
+    const matches=descriptionSuggestions.filter(item=>normalizeText(item.description).includes(q)).slice(0,5);
     if(!matches.length){box.classList.add('d-none');box.innerHTML='';return;}
-    box.innerHTML=matches.map((item,idx)=>`<button type="button" class="description-suggestion" data-index="${idx}" role="option"><span>${escapeHtml(item.description)}</span><small>${escapeHtml([item.hsn_sac?`HSN/SAC ${item.hsn_sac}`:'',item.unit_price!==''?money(item.unit_price):'',item.gst_percentage!==''?`${item.gst_percentage}% GST`:''].filter(Boolean).join(' · '))}</small></button>`).join('');
+    box.innerHTML=matches.map((item,idx)=>`<button type="button" class="description-suggestion" data-index="${idx}" role="option">${escapeHtml(item.description)}</button>`).join('');
     box.querySelectorAll('.description-suggestion').forEach((btn,idx)=>btn.addEventListener('mousedown',e=>{e.preventDefault();applyDescriptionSuggestion(row,matches[idx]);}));
     closeDescriptionSuggestions(box); box.classList.remove('d-none');
   }

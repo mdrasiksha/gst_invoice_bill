@@ -221,7 +221,7 @@ def user_description_suggestions(user_id: int) -> list[dict]:
     """List saved product/service descriptions for the current user only."""
     suggestions = (
         ProductDescriptionSuggestion.query.filter_by(user_id=user_id)
-        .order_by(ProductDescriptionSuggestion.last_used_at.desc(), ProductDescriptionSuggestion.usage_count.desc())
+        .order_by(ProductDescriptionSuggestion.usage_count.desc(), ProductDescriptionSuggestion.last_used_at.desc())
         .limit(200)
         .all()
     )
