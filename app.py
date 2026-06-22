@@ -1,13 +1,13 @@
 """Multi-tenant SaaS web application for GST invoice generation."""
 from __future__ import annotations
 
-import logging, os, secrets, sys
+import logging, os, secrets, smtplib, sys
 from functools import wraps
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import click
-from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, send_from_directory, session, url_for
+from flask import Flask, abort, flash, jsonify, make_response, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 from sqlalchemy.exc import IntegrityError
 from werkzeug.utils import secure_filename
@@ -15,7 +15,7 @@ from PIL import Image, UnidentifiedImageError
 from sqlalchemy import func, text
 
 from gst_invoice.invoice_generator import calculate_invoice
-from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, User, db
+from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, User, db
 from gst_invoice.pdf_generator import PDFGenerator
 from gst_invoice.utils import amount_to_words, state_code_from_gstin
 from gst_invoice.validators import ALLOWED_GST_RATES, parse_gst_rate, parse_positive_float, parse_required_date, validate_customer, validate_invoice_dates, validate_item
@@ -170,6 +170,7 @@ def ensure_database_columns() -> None:
 
         add_column("users", "is_admin", "BOOLEAN NOT NULL DEFAULT FALSE" if dialect == "postgresql" else "INTEGER NOT NULL DEFAULT 0")
         add_column("users", "plan", "VARCHAR(20) NOT NULL DEFAULT 'free'")
+        add_column("password_reset_tokens", "used_at", "TIMESTAMP")
         for name, ddl in {
             "city": "VARCHAR(80) DEFAULT ''",
             "state": "VARCHAR(80) DEFAULT ''",
@@ -297,6 +298,47 @@ def save_signature(upload) -> str:
     return save_upload(upload, SIGNATURE_DIR, ALLOWED_SIGNATURE_EXTENSIONS, "E-sign image")
 
 
+def friendly_invoice_error(exc: Exception) -> str:
+    msg = str(exc) or "Server/database issue while generating the invoice."
+    low = msg.lower()
+    if "customer" in low or "select a customer" in low:
+        return "Missing customer details. Please select or enter complete customer details."
+    if "item" in low or "product" in low or "service" in low or "quantity" in low or "unit price" in low:
+        return "Missing invoice items. Please add at least one valid invoice item."
+    if "gstin" in low or "gst number" in low or "gst rate" in low or "gst percentage" in low:
+        return "Invalid GST number or GST rate. Please check the GST details."
+    if "pdf" in low or exc.__class__.__name__.lower().endswith("pdferror"):
+        return "PDF generation failed. Please try again or contact support."
+    if exc.__class__.__name__ in {"IntegrityError", "OperationalError", "SQLAlchemyError"}:
+        return "Server/database issue while generating the invoice. Please try again."
+    return msg
+
+
+def send_reset_email(user: User, token: str) -> bool:
+    host = os.getenv("MAIL_SERVER") or os.getenv("SMTP_HOST")
+    sender = os.getenv("MAIL_FROM") or os.getenv("SMTP_FROM")
+    if not host or not sender:
+        logger.error("Password reset email is not configured", extra={"user_id": user.id})
+        return False
+    port = int(os.getenv("MAIL_PORT") or os.getenv("SMTP_PORT") or 587)
+    username = os.getenv("MAIL_USERNAME") or os.getenv("SMTP_USERNAME")
+    password = os.getenv("MAIL_PASSWORD") or os.getenv("SMTP_PASSWORD")
+    use_tls = (os.getenv("MAIL_USE_TLS") or "true").lower() in {"1", "true", "yes", "on"}
+    link = url_for("reset_password", token=token, _external=True)
+    message = f"Subject: Reset your GST Smart password\nTo: {user.email}\nFrom: {sender}\n\nUse this secure link to reset your GST Smart password. It expires in 1 hour:\n{link}\n"
+    try:
+        with smtplib.SMTP(host, port, timeout=15) as smtp:
+            if use_tls:
+                smtp.starttls()
+            if username:
+                smtp.login(username, password or "")
+            smtp.sendmail(sender, [user.email], message)
+        return True
+    except Exception:
+        logger.exception("Failed to send password reset email", extra={"user_id": user.id})
+        return False
+
+
 def update_company_from_form(company: Company):
     f = request.form
     company.company_name=f.get("company_name", "").strip(); company.gstin=f.get("gstin", "").strip().upper()
@@ -411,21 +453,61 @@ def register():
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    remembered_email = request.cookies.get("remembered_email", "")
     if request.method == "POST":
-        user = User.query.filter_by(email=request.form.get("email", "").strip().lower()).first()
+        email = request.form.get("email", "").strip().lower()
+        user = User.query.filter_by(email=email).first()
         if user and user.check_password(request.form.get("password", "")):
-            login_user(user, remember=bool(request.form.get("remember"))); return redirect(url_for("dashboard"))
+            remember = bool(request.form.get("remember"))
+            login_user(user, remember=remember)
+            resp = make_response(redirect(url_for("dashboard")))
+            if remember:
+                resp.set_cookie("remembered_email", email, max_age=60*60*24*365, httponly=True, samesite="Lax", secure=current_app_config_secure())
+            else:
+                resp.delete_cookie("remembered_email")
+            return resp
         flash("Invalid email or password", "danger")
-    return render_template("auth/login.html")
+    return render_template("auth/login.html", remembered_email=remembered_email)
 
 @app.route("/logout", methods=["POST"])
 @login_required
 def logout(): logout_user(); flash("Logged out securely.", "success"); return redirect(url_for("login"))
 
+def current_app_config_secure() -> bool:
+    return bool(app.config.get("SESSION_COOKIE_SECURE"))
+
 @app.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
-    if request.method == "POST": flash("If the email exists, a reset link will be sent by the configured mail provider.", "info")
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        user = User.query.filter_by(email=email).first()
+        if user:
+            token_value = secrets.token_urlsafe(32)
+            reset = PasswordResetToken(user_id=user.id, token=token_value, expires_at=datetime.utcnow() + timedelta(hours=1))
+            db.session.add(reset); db.session.commit()
+            if send_reset_email(user, token_value):
+                flash("Password reset link sent to your registered email.", "success")
+            else:
+                flash("Email service is not configured. Please contact gstsmartsupport@gmail.com for password reset help.", "warning")
+        else:
+            flash("If the email exists, a reset link will be sent to the registered email.", "info")
     return render_template("auth/forgot_password.html")
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    reset = PasswordResetToken.query.filter_by(token=token).first()
+    if not reset or reset.used_at or reset.expires_at < datetime.utcnow():
+        flash("Password reset link is invalid or expired.", "danger")
+        return redirect(url_for("forgot_password"))
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        if len(password) < 8:
+            flash("Password must be at least 8 characters.", "danger")
+        else:
+            reset.user.set_password(password); reset.used_at = datetime.utcnow(); db.session.commit()
+            flash("Password updated. Please log in.", "success")
+            return redirect(url_for("login"))
+    return render_template("auth/reset_password.html")
 
 @app.route("/about")
 def about():
@@ -541,6 +623,7 @@ def create_invoice():
                     pin_code=request.form.get("new_customer_pincode", "").strip(),
                 )
                 customer.state_code = state_code_from_gstin(customer.gstin) or request.form.get("state_code", "").strip() or current_user.company.state_code
+                validate_customer(customer)
                 db.session.add(customer)
             else:
                 customer_id = request.form.get("customer_id", type=int)
@@ -560,10 +643,11 @@ def create_invoice():
                 return jsonify({"ok": True, "message": f"Invoice {inv.invoice_number} generated successfully.", "download_url": url_for("download_pdf", invoice_id=inv.id), "filename": f"{inv.invoice_number}.pdf"})
             flash(f"Invoice {inv.invoice_number} saved.", "success"); return redirect(url_for("download_pdf", invoice_id=inv.id))
         except Exception as exc:
-            db.session.rollback(); logger.exception("Invoice PDF generation failed")
+            db.session.rollback(); logger.exception("Invoice generation failed", extra={"user_id": current_user.id})
+            message = friendly_invoice_error(exc)
             if wants_json:
-                return jsonify({"ok": False, "message": str(exc)}), 400
-            flash(str(exc), "danger")
+                return jsonify({"ok": False, "message": message}), 400
+            flash(message, "danger")
     defaults={"invoice_number":next_invoice_number(current_user.company_id),"invoice_date":date.today().isoformat(),"due_date":(date.today()+timedelta(days=15)).isoformat()}
     return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES)
 
@@ -602,7 +686,7 @@ def delete_invoice(invoice_id):
     if not inv:
         flash("Invoice not found or you do not have access to it.", "warning")
         return redirect(url_for("dashboard"))
-    db.session.delete(inv); db.session.commit(); flash("Invoice deleted.", "success"); return redirect(url_for("dashboard"))
+    db.session.delete(inv); db.session.commit(); flash("Invoice deleted successfully.", "success"); return redirect(url_for("dashboard"))
 
 @app.route("/admin")
 @admin_required

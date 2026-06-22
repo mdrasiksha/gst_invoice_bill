@@ -82,7 +82,7 @@ class PDFGenerator:
             scale = min(box_width / width, box_height / height)
             return Image(str(path_value), width=width * scale, height=height * scale)
 
-        doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=12*mm, leftMargin=12*mm, topMargin=13*mm, bottomMargin=18*mm)
+        doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=9*mm, leftMargin=9*mm, topMargin=9*mm, bottomMargin=12*mm)
         story = []
         logo = None
         logo_path = image_path(invoice.company.logo_path)
@@ -132,8 +132,9 @@ class PDFGenerator:
         meta = Table(meta_rows, colWidths=[35*mm, 56*mm, 35*mm, 56*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("BACKGROUND", (0,0), (0,-1), light), ("BACKGROUND", (2,0), (2,-1), light), ("FONTNAME", (0,0), (-1,-1), font), ("FONTNAME", (0,0), (0,-1), bold), ("FONTNAME", (2,0), (2,-1), bold), ("FONTSIZE", (0,0), (-1,-1), 8)])
         story += [meta, Spacer(1, 4*mm)]
         customer_address = ", ".join([p for p in [invoice.customer.address, invoice.customer.city, invoice.customer.state, invoice.customer.pin_code] if present(p)])
-        bill_lines = ["<b>Bill To</b>", esc(invoice.customer.customer_name)]
-        bill_lines.append(f"GSTIN: {esc(invoice.customer.gstin or 'Unregistered')}")
+        bill_lines = ["<b><font color='#123C69'>Bill To</font></b>", esc(invoice.customer.customer_name)]
+        if present(invoice.customer.gstin):
+            bill_lines.append(f"GSTIN: {esc(invoice.customer.gstin)}")
         if present(customer_address):
             bill_lines.append(esc(customer_address))
         if present(invoice.customer.phone):
@@ -141,7 +142,7 @@ class PDFGenerator:
         if present(invoice.customer.email):
             bill_lines.append(f"Email: {esc(invoice.customer.email)}")
         bill = "<br/>".join(bill_lines)
-        story += [Table([[Paragraph(bill, styles["Small"])]], colWidths=[182*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 8), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]), Spacer(1, 4*mm)]
+        story += [Table([[Paragraph(bill, styles["Small"])]], colWidths=[182*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#EEF5FF")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 8), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]), Spacer(1, 4*mm)]
 
         data = [["Sr No", "Description", "HSN/SAC", "Qty", "Unit Price", "GST %", "Amount"]]
         for idx, item in enumerate(invoice.items, 1):
@@ -213,7 +214,7 @@ class PDFGenerator:
         doc.build(story, onFirstPage=page_footer, onLaterPages=page_footer)
 
     def _generate_minimal_pdf(self, invoice: Invoice, path: Path) -> None:
-        lines = ["TAX INVOICE", f"Invoice: {invoice.invoice_number}  Date: {invoice.invoice_date:%d-%m-%Y}", f"Seller: {invoice.company.seller_name} GSTIN: {invoice.company.gstin}", f"Buyer: {invoice.customer.customer_name} GSTIN: {invoice.customer.gstin or 'Unregistered'}", "Items:"]
+        lines = ["TAX INVOICE", f"Invoice: {invoice.invoice_number}  Date: {invoice.invoice_date:%d-%m-%Y}", f"Seller: {invoice.company.seller_name} GSTIN: {invoice.company.gstin}", f"Buyer: {invoice.customer.customer_name}" + (f" GSTIN: {invoice.customer.gstin}" if invoice.customer.gstin else ""), "Items:"]
         for item in invoice.items:
             lines.append(f"{item.item_name} HSN:{item.hsn_sac or '-'} Qty:{item.quantity:g} Total:{item.total_amount:.2f}")
         lines += [f"Taxable: INR {invoice.taxable_amount:.2f}", f"CGST: INR {invoice.cgst:.2f} SGST: INR {invoice.sgst:.2f} IGST: INR {invoice.igst:.2f}", f"Grand Total: INR {invoice.grand_total:.2f}", amount_to_words(invoice.grand_total), "Terms and Conditions apply.", getattr(invoice.company, "authorized_signature_name", "") or "", "Authorized Signature"]
