@@ -10,6 +10,7 @@ import pytest
 
 from app import app, db
 from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, User
+from gst_invoice.utils import INDIAN_STATE_CODES, state_code_from_state, state_name_from_code
 
 
 @pytest.fixture()
@@ -225,3 +226,54 @@ def test_new_customer_without_gstin_generates_pdf_and_hides_gstin(client):
     assert b'Walk In Buyer' in customers_page.data
     assert b'Unregistered' not in customers_page.data
     assert b'Not provided' not in customers_page.data
+
+
+@pytest.mark.parametrize("code,state", INDIAN_STATE_CODES.items())
+def test_all_indian_state_mappings_are_bidirectional(code, state):
+    assert state_code_from_state(state) == code
+    assert state_name_from_code(code) == state
+
+
+def test_create_invoice_autofills_state_code_place_and_uses_sgst_cgst_for_same_state(client):
+    login(client)
+    data = invoice_post_data(
+        invoice_number="INV-STATE-SAME",
+        new_customer_state="Karnataka",
+        state_code="29",
+        place_of_supply="Should be ignored",
+    )
+    data["gst_percentage[]"] = "18.0"
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**data, "csrf_token": csrf(client)})
+    assert rv.status_code == 200
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-STATE-SAME").one()
+        assert inv.state_code == "29"
+        assert inv.place_of_supply == "Karnataka"
+        assert inv.cgst == 9.0
+        assert inv.sgst == 9.0
+        assert inv.igst == 0.0
+
+
+def test_create_invoice_autofills_state_code_place_and_uses_igst_for_different_state(client):
+    login(client)
+    data = invoice_post_data(invoice_number="INV-STATE-DIFF", new_customer_state="Tamil Nadu", state_code="33")
+    data["gst_percentage[]"] = "18.0"
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**data, "csrf_token": csrf(client)})
+    assert rv.status_code == 200
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-STATE-DIFF").one()
+        assert inv.state_code == "33"
+        assert inv.place_of_supply == "Tamil Nadu"
+        assert inv.cgst == 0.0
+        assert inv.sgst == 0.0
+        assert inv.igst == 18.0
+
+
+def test_create_invoice_rejects_state_code_mismatch(client):
+    login(client)
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={
+        **invoice_post_data(invoice_number="INV-STATE-BAD", new_customer_state="Tamil Nadu", state_code="29"),
+        "csrf_token": csrf(client),
+    })
+    assert rv.status_code == 400
+    assert "state does not match the state code" in rv.json["message"]

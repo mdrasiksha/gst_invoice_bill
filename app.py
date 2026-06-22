@@ -17,8 +17,8 @@ from sqlalchemy import func, text
 from gst_invoice.invoice_generator import calculate_invoice
 from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, ProductDescriptionSuggestion, User, db
 from gst_invoice.pdf_generator import PDFGenerator
-from gst_invoice.utils import amount_to_words, state_code_from_gstin, validate_email, validate_gstin, validate_phone
-from gst_invoice.validators import ALLOWED_GST_RATES, parse_gst_rate, parse_positive_float, parse_required_date, validate_customer, validate_invoice_dates, validate_item
+from gst_invoice.utils import INDIAN_STATE_CODES, amount_to_words, normalize_state_name, state_code_from_gstin, state_code_from_state, validate_email, validate_gstin, validate_phone
+from gst_invoice.validators import ALLOWED_GST_RATES, parse_gst_rate, parse_positive_float, parse_required_date, validate_company, validate_customer, validate_invoice_dates, validate_item
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads" / "company_logos"
@@ -377,9 +377,9 @@ def build_new_invoice_customer(form) -> Customer:
         email=email,
         address=values["new_customer_address"],
         city=values["new_customer_city"],
-        state=values["new_customer_state"],
+        state=normalize_state_name(values["new_customer_state"]),
         pin_code=values["new_customer_pincode"],
-        state_code=state_code_from_gstin(gstin) or form.get("state_code", "").strip() or current_user.company.state_code,
+        state_code=state_code_from_state(values["new_customer_state"]),
     )
 
 def friendly_invoice_error(exc: Exception) -> str:
@@ -426,7 +426,7 @@ def send_reset_email(user: User, token: str) -> bool:
 def update_company_from_form(company: Company):
     f = request.form
     company.company_name=f.get("company_name", "").strip(); company.gstin=f.get("gstin", "").strip().upper()
-    company.address=f.get("address", "").strip(); company.city=f.get("city", "").strip(); company.state=f.get("state", "").strip(); company.pin_code=f.get("pin_code", "").strip()
+    company.address=f.get("address", "").strip(); company.city=f.get("city", "").strip(); company.state=normalize_state_name(f.get("state", "")); company.pin_code=f.get("pin_code", "").strip()
     company.phone=f.get("phone", "").strip(); company.email=f.get("email", "").strip(); company.website=f.get("website", "").strip()
     company.bank_name=f.get("bank_name", "").strip(); company.account_number=f.get("account_number", "").strip(); company.ifsc=f.get("ifsc", "").strip().upper(); company.upi_id=f.get("upi_id", "").strip()
     company.authorized_signature_name=f.get("authorized_signature_name", "").strip()
@@ -446,6 +446,7 @@ def update_company_from_form(company: Company):
     if f.get("remove_signature_image") == "1": company.signature_image_path = ""
     if not all([company.company_name, company.gstin, company.address, company.city, company.state, company.pin_code]):
         raise ValueError("Company name, GSTIN, address, city, state and PIN code are required.")
+    validate_company(company)
 
 
 
@@ -652,7 +653,7 @@ def company_setup():
     if request.method == "POST":
         try: update_company_from_form(ensure_user_company(current_user)); db.session.commit(); flash("Company profile saved.", "success"); return redirect(url_for("dashboard"))
         except Exception as exc: db.session.rollback(); flash(str(exc), "danger")
-    return render_template("settings.html", company=ensure_user_company(current_user))
+    return render_template("settings.html", company=ensure_user_company(current_user), indian_states=INDIAN_STATE_CODES)
 
 @app.route("/customers")
 @login_required
@@ -665,10 +666,10 @@ def customer_form(customer_id=None):
     customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first() if customer_id else Customer(company_id=current_user.company_id)
     if customer_id and not customer: abort(404)
     if request.method == "POST":
-        customer.customer_name=request.form.get("customer_name","").strip(); customer.gstin=request.form.get("gstin","").strip().upper(); customer.address=request.form.get("address","").strip(); customer.city=request.form.get("city","").strip(); customer.state=request.form.get("state","").strip(); customer.pin_code=request.form.get("pin_code","").strip(); customer.phone=request.form.get("phone","").strip(); customer.email=request.form.get("email","").strip(); customer.state_code=request.form.get("state_code","").strip() or state_code_from_gstin(customer.gstin) or ""
+        customer.customer_name=request.form.get("customer_name","").strip(); customer.gstin=request.form.get("gstin","").strip().upper(); customer.address=request.form.get("address","").strip(); customer.city=request.form.get("city","").strip(); customer.state=normalize_state_name(request.form.get("state","")); customer.pin_code=request.form.get("pin_code","").strip(); customer.phone=request.form.get("phone","").strip(); customer.email=request.form.get("email","").strip(); customer.state_code=state_code_from_state(customer.state) or state_code_from_gstin(customer.gstin) or ""
         try: validate_customer(customer); db.session.add(customer); db.session.commit(); flash("Customer saved.", "success"); return redirect(url_for("customers"))
         except Exception as exc: db.session.rollback(); flash(str(exc), "danger")
-    return render_template("customer_form.html", customer=customer)
+    return render_template("customer_form.html", customer=customer, indian_states=INDIAN_STATE_CODES)
 
 @app.route("/customers/<int:customer_id>/delete", methods=["POST"])
 @login_required
@@ -721,7 +722,16 @@ def create_invoice():
                 if not customer_id:
                     raise ValueError("Customer selection is required for an existing customer.")
                 customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first_or_404()
-            inv=Invoice(company=current_user.company, customer=customer, created_by_user_id=current_user.id, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=parse_required_date(request.form.get("invoice_date"),"Invoice date"), due_date=parse_required_date(request.form.get("due_date"),"Due date"), place_of_supply=request.form.get("place_of_supply","").strip(), state_code=request.form.get("state_code","").strip() or customer.state_code or current_user.company.state_code)
+            customer_state = normalize_state_name(customer.state)
+            supply_code = state_code_from_state(customer_state)
+            if not supply_code:
+                raise ValueError("Customer state must be a valid Indian state or union territory.")
+            submitted_state_code = request.form.get("state_code", "").strip().zfill(2)
+            if submitted_state_code and submitted_state_code != supply_code:
+                raise ValueError("Customer state does not match the state code.")
+            customer.state = customer_state
+            customer.state_code = supply_code
+            inv=Invoice(company=current_user.company, customer=customer, created_by_user_id=current_user.id, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=parse_required_date(request.form.get("invoice_date"),"Invoice date"), due_date=parse_required_date(request.form.get("due_date"),"Due date"), place_of_supply=customer_state, state_code=supply_code)
             setattr(inv, "terms", request.form.get("terms", "").strip())
             hsn_values=request.form.getlist("hsn_sac[]"); qty_values=request.form.getlist("quantity[]"); price_values=request.form.getlist("unit_price[]"); gst_values=request.form.getlist("gst_percentage[]")
             for idx,name in enumerate(request.form.getlist("item_name[]")):
@@ -740,7 +750,7 @@ def create_invoice():
                 return jsonify({"ok": False, "message": message}), 400
             flash(message, "danger")
     defaults={"invoice_number":next_invoice_number(current_user.company_id),"invoice_date":date.today().isoformat(),"due_date":(date.today()+timedelta(days=15)).isoformat()}
-    return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES, description_suggestions=user_description_suggestions(current_user.id))
+    return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES, indian_states=INDIAN_STATE_CODES, description_suggestions=user_description_suggestions(current_user.id))
 
 @app.route("/invoice/<int:invoice_id>")
 @app.route("/invoice/view/<int:invoice_id>")
