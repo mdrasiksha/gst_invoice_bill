@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 
 from .models import Company, Customer, InvoiceItem
-from .utils import parse_date, validate_email, validate_gstin, validate_phone
+from .utils import parse_date, state_code_from_gstin, state_code_from_state, validate_email, validate_gstin, validate_phone
 
 ALLOWED_GST_RATES = (0.0, 5.0, 12.0, 18.0, 28.0)
 
@@ -37,6 +37,10 @@ def validate_company(company: Company) -> None:
         raise ValueError("Company address is required.")
     if not validate_gstin(company.gstin):
         raise ValueError("Company GSTIN is invalid.")
+    if company.state and not state_code_from_state(company.state):
+        raise ValueError("Company state must be a valid Indian state or union territory.")
+    if company.state and company.gstin and state_code_from_gstin(company.gstin) != state_code_from_state(company.state):
+        raise ValueError("Company state does not match the GSTIN state code.")
     if not validate_phone(company.phone):
         raise ValueError("Company phone number is invalid.")
     if not validate_email(company.email):
@@ -50,6 +54,14 @@ def validate_customer(customer: Customer) -> None:
         raise ValueError("Customer address is required.")
     if not validate_gstin(customer.gstin, optional=True):
         raise ValueError("Customer GSTIN is invalid.")
+    if customer.state and not state_code_from_state(customer.state):
+        raise ValueError("Customer state must be a valid Indian state or union territory.")
+    if customer.state_code and not state_code_from_state(customer.state):
+        raise ValueError("Customer state code requires a valid Indian state or union territory.")
+    if customer.state and customer.state_code and customer.state_code.zfill(2) != state_code_from_state(customer.state):
+        raise ValueError("Customer state does not match the state code.")
+    if customer.gstin and customer.state and state_code_from_gstin(customer.gstin) != state_code_from_state(customer.state):
+        raise ValueError("Customer state does not match the GSTIN state code.")
     if not validate_phone(customer.phone):
         raise ValueError("Customer phone number is invalid.")
     if not validate_email(customer.email):

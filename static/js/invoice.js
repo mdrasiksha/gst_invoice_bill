@@ -11,13 +11,21 @@
   function customerData(){
     if(isNewCustomer()){
       const get=(n)=>field(n)?.value?.trim()||'';
+      const state=get('new_customer_state');
+      const stateCode=field('new_customer_state')?.selectedOptions?.[0]?.dataset.code||'';
       const address=[get('new_customer_address'),get('new_customer_city'),get('new_customer_state'),get('new_customer_pincode')].filter(Boolean).join(', ');
-      return {name:get('new_customer_name')||'New customer', gstin:get('new_customer_gstin'), address, phone:get('new_customer_phone'), email:get('new_customer_email')};
+      return {name:get('new_customer_name')||'New customer', gstin:get('new_customer_gstin'), address, phone:get('new_customer_phone'), email:get('new_customer_email'), state, stateCode};
     }
     const sel=field('customer_id'); const opt=sel?.options[sel.selectedIndex];
-    return {name:opt?.text||'Select customer', gstin:opt?.dataset.gstin||'', address:opt?.dataset.address||'', phone:opt?.dataset.phone||'', email:opt?.dataset.email||''};
+    return {name:opt?.text||'Select customer', gstin:opt?.dataset.gstin||'', address:opt?.dataset.address||'', phone:opt?.dataset.phone||'', email:opt?.dataset.email||'', state:opt?.dataset.state||'', stateCode:opt?.dataset.stateCode||''};
+  }
+  function syncSupplyFields(){
+    const data=customerData();
+    const code=field('state_code'); if(code) code.value=data.stateCode||'';
+    const place=field('place_of_supply'); if(place) place.value=data.state||'';
   }
   function updateCustomer(){
+    syncSupplyFields();
     const data=customerData();
     [['previewCustomer',data.name],['previewCustomerAddress',data.address],['previewCustomerPhone',data.phone?`Phone: ${data.phone}`:'']].forEach(([id,val])=>{const el=document.getElementById(id); if(el)el.textContent=val;}); const gstEl=document.getElementById('previewCustomerGstin'); if(gstEl){gstEl.textContent=data.gstin?`GSTIN: ${data.gstin}`:''; gstEl.classList.toggle('d-none', !data.gstin);}
   }
