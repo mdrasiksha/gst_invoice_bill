@@ -600,7 +600,7 @@ def customer_delete(customer_id):
             return redirect(url_for("customers"))
         linked_invoice_count = Invoice.query.filter_by(company_id=current_user.company_id, customer_id=customer.id).count()
         if linked_invoice_count:
-            flash("Customer cannot be deleted because invoices are linked.", "warning")
+            flash("This customer has invoices linked. Please delete or reassign those invoices before deleting the customer.", "warning")
             return redirect(url_for("customers"))
         db.session.delete(customer)
         db.session.commit()

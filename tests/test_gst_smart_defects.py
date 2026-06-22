@@ -145,7 +145,7 @@ def test_delete_customer_with_linked_invoices_is_blocked(client):
     with app.app_context():
         inv = make_invoice(); cid = inv.customer_id
     rv = client.post(f'/customers/{cid}/delete', data={"csrf_token": csrf(client), "customer_id": cid}, follow_redirects=True)
-    assert b'Customer cannot be deleted because invoices are linked.' in rv.data
+    assert b'This customer has invoices linked. Please delete or reassign those invoices before deleting the customer.' in rv.data
     with app.app_context():
         assert db.session.get(Customer, cid) is not None
 
