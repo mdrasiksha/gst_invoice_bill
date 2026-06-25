@@ -1,4 +1,11 @@
 User-agent: *
 Allow: /
+Allow: /favicon.ico
+Allow: /favicon-16x16.png
+Allow: /favicon-32x32.png
+Allow: /apple-touch-icon.png
+Allow: /android-chrome-192x192.png
+Allow: /android-chrome-512x512.png
+Allow: /site.webmanifest
 
 Sitemap: https://gstsmart.com/sitemap.xml

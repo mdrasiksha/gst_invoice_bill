@@ -6,3 +6,10 @@ gst_invoice/invoices/*.pdf
 gst_invoice/assets/*.png
 gst_invoice/assets/*.jpg
 gst_invoice/assets/*.jpeg
+# Generated favicon assets. Source of truth is gst_invoice/favicon.py.
+static/favicon.ico
+static/favicon-16x16.png
+static/favicon-32x32.png
+static/apple-touch-icon.png
+static/android-chrome-192x192.png
+static/android-chrome-512x512.png
