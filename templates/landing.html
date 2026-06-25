@@ -46,75 +46,31 @@
 </script>
 {% endblock %}
 {% block content %}
-{% set invoice_cta = url_for('create_invoice') if current_user.is_authenticated else url_for('register') %}
 <section class="landing-hero rounded-4 overflow-hidden mb-5" aria-labelledby="landing-title">
   <div class="row align-items-center g-4 p-4 p-lg-5">
-    <div class="col-lg-6">
-      <span class="badge rounded-pill text-bg-light text-primary fw-semibold mb-3">GST Smart - Free GST Invoice Generator</span>
-      <h1 id="landing-title" class="display-4 fw-bold text-white mb-3">Create Professional GST Invoices in Under 30 Seconds</h1>
-      <p class="lead text-white-75 mb-4">Free GST invoice generator for freelancers, shops, startups, and small businesses. Create, download, and manage GST invoices from mobile or desktop.</p>
-      <div class="hero-benefits mb-4" aria-label="GST Smart benefits">
-        {% for benefit in ["First 3 Invoices Free", "Instant PDF Download", "Mobile & Desktop Friendly", "No Excel Required"] %}
-        <div class="hero-benefit"><i class="bi bi-check-circle-fill" aria-hidden="true"></i><span>{{ benefit }}</span></div>
-        {% endfor %}
-      </div>
-      <div class="d-flex flex-column flex-sm-row gap-3">
-        <a class="btn btn-light btn-lg fw-semibold px-4" href="{{ invoice_cta }}">Generate Free Invoice</a>
-        <a class="btn btn-outline-light btn-lg fw-semibold px-4" href="#sample-preview">View Sample Invoice</a>
-      </div>
-    </div>
-    <div class="col-lg-6" id="sample-preview">
-      <div class="product-preview-shell shadow-lg" aria-label="GST invoice product preview">
-        <div class="preview-toolbar"><span></span><span></span><span></span><strong>Invoice Builder</strong></div>
-        <div class="product-preview-grid">
-          <div class="builder-mock">
-            <div class="mock-label">Create Invoice</div>
-            <div class="mock-input w-75"></div>
-            <div class="mock-input"></div>
-            <div class="mock-items">
-              <span>Service</span><span>Qty</span><span>GST</span>
-              <strong>Website design</strong><strong>1</strong><strong>18%</strong>
-            </div>
-            <div class="mock-button">Generate PDF</div>
-          </div>
-          <div class="pdf-mock">
-            <div class="pdf-title">GST TAX INVOICE</div>
-            <div class="pdf-row"><span>Invoice #</span><strong>GST-001</strong></div>
-            <div class="pdf-row"><span>Subtotal</span><strong>₹25,000</strong></div>
-            <div class="pdf-row"><span>GST</span><strong>₹4,500</strong></div>
-            <div class="pdf-total"><span>Total</span><strong>₹29,500</strong></div>
-          </div>
-          <div class="mobile-mock">
-            <div class="mobile-speaker"></div>
-            <div class="mobile-card"></div>
-            <div class="mobile-card short"></div>
-            <div class="mobile-cta">PDF</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section class="landing-section live-preview-section rounded-4 p-4 p-lg-5 mb-5" aria-labelledby="live-preview-title">
-  <div class="row align-items-center g-4">
-    <div class="col-lg-5">
-      <p class="text-uppercase text-primary fw-bold small mb-2">Live PDF Preview</p>
-      <h2 id="live-preview-title" class="fw-bold">Edit invoice details on the left, preview your professional GST invoice on the right.</h2>
-      <p class="text-muted mb-0">See how your customer, item, GST, logo, UPI, and signature details come together before you download the final PDF.</p>
-    </div>
     <div class="col-lg-7">
-      <div class="live-preview-mock">
-        <div class="live-form-mock">
-          <span class="mock-heading">Invoice details</span>
-          <span class="mock-field"></span><span class="mock-field"></span><span class="mock-field small"></span>
-          <span class="mock-add-row">+ Add item</span>
-        </div>
-        <div class="live-pdf-mock">
-          <div class="pdf-title">Professional GST Invoice</div>
-          <div class="pdf-row"><span>Bill To</span><strong>Acme Retail</strong></div>
-          <div class="pdf-row"><span>CGST + SGST</span><strong>₹4,500</strong></div>
-          <div class="pdf-total"><span>Payable</span><strong>₹29,500</strong></div>
+      <span class="badge rounded-pill text-bg-light text-primary fw-semibold mb-3">GST Smart - Free GST Invoice Generator</span>
+      <h1 id="landing-title" class="display-5 fw-bold text-white mb-3">GST Smart</h1>
+      <p class="lead text-white-75 mb-4">Create Professional GST Invoices in Seconds</p>
+      <div class="d-flex flex-column flex-sm-row gap-3">
+        <a class="btn btn-light btn-lg fw-semibold px-4" href="{{ url_for('register') }}">Get Started Free</a>
+        <a class="btn btn-outline-light btn-lg fw-semibold px-4" href="{{ url_for('login') }}">Login</a>
+      </div>
+    </div>
+    <div class="col-lg-5">
+      <div class="landing-preview card border-0 shadow-lg">
+        <div class="card-body p-4">
+          <div class="d-flex justify-content-between align-items-start mb-4">
+            <div>
+              <div class="small text-muted fw-semibold text-uppercase">Invoice Preview</div>
+              <h2 class="h5 mb-0">GST Invoice</h2>
+            </div>
+            <span class="badge text-bg-success">Ready PDF</span>
+          </div>
+          <div class="landing-invoice-line"><span>Taxable Amount</span><strong>₹25,000</strong></div>
+          <div class="landing-invoice-line"><span>CGST + SGST</span><strong>₹4,500</strong></div>
+          <div class="landing-invoice-line total"><span>Grand Total</span><strong>₹29,500</strong></div>
+          <div class="mt-4 d-grid"><span class="btn btn-primary disabled">Download Professional PDF</span></div>
         </div>
       </div>
     </div>
@@ -123,24 +79,23 @@
 
 <section id="features" class="landing-section mb-5" aria-labelledby="features-title">
   <div class="text-center mb-4">
-    <p class="text-uppercase text-primary fw-bold small mb-2">Benefits</p>
-    <h2 id="features-title" class="fw-bold">Everything small businesses need for professional GST billing</h2>
+    <p class="text-uppercase text-primary fw-bold small mb-2">Features</p>
+    <h2 id="features-title" class="fw-bold">Everything you need to create GST invoices quickly</h2>
   </div>
   <div class="row g-3">
-    {% set benefits = [("📄", "GST Ready Invoice Format"), ("⚡", "Instant PDF Download"), ("👥", "Save Customer Details"), ("🏷️", "Company Logo Support"), ("📱", "UPI QR Code Support"), ("✍️", "E-Signature Support")] %}
-    {% for icon, benefit in benefits %}
-    <div class="col-md-6 col-lg-4"><div class="benefit-card h-100"><span class="benefit-icon">{{ icon }}</span><strong>{{ benefit }}</strong></div></div>
+    {% for feature in ["Create GST invoices quickly", "Auto GST calculation", "CGST / SGST / IGST breakup", "Professional PDF invoice", "Save company details"] %}
+    <div class="col-md-6 col-lg"><div class="landing-tile h-100"><i class="bi bi-check-circle-fill"></i><span>{{ feature }}</span></div></div>
     {% endfor %}
   </div>
 </section>
 
 <section id="how-it-works" class="landing-section mb-5" aria-labelledby="how-title">
   <div class="row align-items-center g-4">
-    <div class="col-lg-5"><p class="text-uppercase text-primary fw-bold small mb-2">How It Works</p><h2 id="how-title" class="fw-bold">Download your GST invoice PDF in three simple steps</h2></div>
+    <div class="col-lg-5"><p class="text-uppercase text-primary fw-bold small mb-2">How It Works</p><h2 id="how-title" class="fw-bold">Generate your invoice in three simple steps</h2></div>
     <div class="col-lg-7">
       <div class="row g-3">
-        {% for step in ["Enter Company Details", "Add Customer & Items", "Download GST Invoice PDF"] %}
-        <div class="col-md-4"><div class="step-card h-100"><div class="step-number">{{ loop.index }}</div><strong>Step {{ loop.index }}: {{ step }}</strong></div></div>
+        {% for step in ["Register free", "Add customer and item details", "Generate and download PDF invoice"] %}
+        <div class="col-md-4"><div class="step-card h-100"><div class="step-number">{{ loop.index }}</div><strong>{{ step }}</strong></div></div>
         {% endfor %}
       </div>
     </div>
