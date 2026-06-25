@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import func, text
 
+from gst_invoice.favicon import ensure_favicon_assets
 from gst_invoice.invoice_generator import calculate_invoice
 from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, ProductDescriptionSuggestion, User, db
 from gst_invoice.pdf_generator import PDFGenerator
@@ -38,7 +39,7 @@ PRICING_PLANS = [
     {"key": "business", "name": "Business", "price": "999", "limit": "Unlimited invoices + future multi-user support", "note": "For teams preparing to scale."},
 ]
 INVOICE_LIMIT_MESSAGE = "Monthly invoice limit reached. Please upgrade your plan to continue creating invoices."
-PUBLIC_ENDPOINTS = {"landing", "about", "contact", "privacy_policy", "terms_and_conditions", "pricing", "robots_txt", "sitemap_xml"}
+PUBLIC_ENDPOINTS = {"landing", "about", "contact", "privacy_policy", "terms_and_conditions", "pricing", "robots_txt", "sitemap_xml", "favicon_asset"}
 
 
 def configure_logging(app: Flask) -> None:
@@ -94,6 +95,7 @@ def create_app() -> Flask:
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true",
     )
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
+    ensure_favicon_assets(BASE_DIR / "static")
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True); QR_DIR.mkdir(parents=True, exist_ok=True); SIGNATURE_DIR.mkdir(parents=True, exist_ok=True); PDF_DIR.mkdir(parents=True, exist_ok=True)
     db.init_app(app)
     login_manager = LoginManager(app); login_manager.login_view = "login"; login_manager.session_protection = "strong"
@@ -116,6 +118,24 @@ def create_app() -> Flask:
     def inject_globals():
         session.setdefault("csrf_token", secrets.token_urlsafe(32))
         return {"csrf_token": session["csrf_token"]}
+
+    @app.route("/robots.txt")
+    def robots_txt():
+        return send_from_directory(BASE_DIR, "robots.txt", mimetype="text/plain")
+
+    @app.route("/sitemap.xml")
+    def sitemap_xml():
+        return send_from_directory(BASE_DIR, "sitemap.xml", mimetype="application/xml")
+
+    @app.route("/favicon.ico")
+    @app.route("/favicon-16x16.png")
+    @app.route("/favicon-32x32.png")
+    @app.route("/apple-touch-icon.png")
+    @app.route("/android-chrome-192x192.png")
+    @app.route("/android-chrome-512x512.png")
+    @app.route("/site.webmanifest")
+    def favicon_asset():
+        return send_from_directory(BASE_DIR / "static", request.path.lstrip("/"))
 
     @app.cli.command("create-admin")
     @click.option("--email", required=True, help="Admin email address.")
@@ -612,16 +632,6 @@ def privacy_policy():
 @app.route("/terms-and-conditions")
 def terms_and_conditions():
     return render_template("terms_and_conditions.html")
-
-
-@app.route("/robots.txt")
-def robots_txt():
-    return send_from_directory(BASE_DIR, "robots.txt", mimetype="text/plain")
-
-
-@app.route("/sitemap.xml")
-def sitemap_xml():
-    return send_from_directory(BASE_DIR, "sitemap.xml", mimetype="application/xml")
 
 
 @app.route("/pricing")
