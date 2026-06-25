@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block robots_meta %}noindex, nofollow{% endblock %}
 {% block title %}Create Invoice | GST Smart{% endblock %}
 {% block content %}
 <form id="invoiceForm" method="post" class="needs-validation" data-description-suggestions='{{ description_suggestions|tojson }}' novalidate>
@@ -26,7 +27,7 @@
 3. Subject to local jurisdiction.</textarea></div></div>
     </div>
     <aside class="col-xl-5"><div class="sticky-xl-top live-preview-wrap"><div id="previewSheet" class="invoice-sheet invoice-preview bg-white shadow-sm p-4">
-      <div class="preview-header {% if not company.logo_path %}preview-header-no-logo{% endif %}">{% if company.logo_path %}<div><img src="/{{ company.logo_path }}" class="invoice-logo"></div>{% endif %}<div class="preview-company"><h2>{{ company.company_name }}</h2><p>GSTIN: {{ company.gstin }}</p><p>{{ company.address }}, {{ company.city }}, {{ company.state }} {{ company.pin_code }}</p><p>Phone: {{ company.phone }} · Email: {{ company.email }}</p></div><span class="tax-badge">TAX INVOICE</span></div>
+      <div class="preview-header {% if not company.logo_path %}preview-header-no-logo{% endif %}">{% if company.logo_path %}<div><img src="/{{ company.logo_path }}" class="invoice-logo" alt="{{ company.company_name }} logo"></div>{% endif %}<div class="preview-company"><h2>{{ company.company_name }}</h2><p>GSTIN: {{ company.gstin }}</p><p>{{ company.address }}, {{ company.city }}, {{ company.state }} {{ company.pin_code }}</p><p>Phone: {{ company.phone }} · Email: {{ company.email }}</p></div><span class="tax-badge">TAX INVOICE</span></div>
       <div class="preview-meta"><span>Invoice Number</span><strong data-preview="invoice_number">{{ defaults.invoice_number }}</strong><span>Invoice Date</span><strong data-preview="invoice_date">{{ defaults.invoice_date }}</strong><span>Due Date</span><strong data-preview="due_date">{{ defaults.due_date }}</strong><span>Place of Supply</span><strong data-preview="place_of_supply">{{ company.state }}</strong></div>
       <div class="row g-2 mb-3"><div class="col-12"><div class="info-box"><strong>Bill To</strong><p class="mb-0 fw-semibold" id="previewCustomer">New customer</p><small id="previewCustomerGstin"></small><br><small id="previewCustomerAddress"></small><br><small id="previewCustomerPhone"></small></div></div></div>
       <table class="table table-sm table-bordered invoice-table"><thead><tr><th>Sr</th><th>Description</th><th class="text-center">HSN/SAC</th><th class="text-center">Qty</th><th class="text-center">Unit Price</th><th class="text-center">GST %</th><th class="text-center">Amount</th></tr></thead><tbody id="previewItems"></tbody></table>
