@@ -1,8 +1,50 @@
 {% extends "base.html" %}
-{% block title %}GST Smart - Free GST Invoice Generator{% endblock %}
-{% block meta_description %}Create GST invoices online in seconds with GST Smart. Professional GST invoice generator for freelancers, startups and small businesses.{% endblock %}
-{% block og_title %}GST Smart - Free GST Invoice Generator{% endblock %}
-{% block og_description %}Create GST invoices online in seconds with GST Smart. Professional GST invoice generator for freelancers, startups and small businesses.{% endblock %}
+{% block title %}GST Smart | Free GST Invoice Generator for Small Businesses{% endblock %}
+{% block meta_description %}Create professional GST invoices online in seconds. Free invoice generator for freelancers, traders, shops, and small businesses. Download PDF instantly.{% endblock %}
+{% block canonical_url %}https://gstsmart.com/{% endblock %}
+{% block og_title %}GST Smart | Free GST Invoice Generator for Small Businesses{% endblock %}
+{% block og_description %}Create professional GST invoices online in seconds. Free invoice generator for freelancers, traders, shops, and small businesses. Download PDF instantly.{% endblock %}
+{% block og_url %}https://gstsmart.com/{% endblock %}
+{% block twitter_title %}GST Smart | Free GST Invoice Generator for Small Businesses{% endblock %}
+{% block twitter_description %}Create professional GST invoices online in seconds. Free invoice generator for freelancers, traders, shops, and small businesses. Download PDF instantly.{% endblock %}
+{% block structured_data %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://gstsmart.com/#website",
+      "name": "GST Smart",
+      "url": "https://gstsmart.com/"
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://gstsmart.com/#organization",
+      "name": "GST Smart",
+      "url": "https://gstsmart.com/",
+      "logo": "https://gstsmart.com/android-chrome-512x512.png"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://gstsmart.com/#softwareapplication",
+      "name": "GST Smart",
+      "url": "https://gstsmart.com/",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "INR"
+      },
+      "publisher": {
+        "@id": "https://gstsmart.com/#organization"
+      }
+    }
+  ]
+}
+</script>
+{% endblock %}
 {% block content %}
 <section class="landing-hero rounded-4 overflow-hidden mb-5" aria-labelledby="landing-title">
   <div class="row align-items-center g-4 p-4 p-lg-5">
