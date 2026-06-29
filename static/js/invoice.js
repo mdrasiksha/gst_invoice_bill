@@ -41,7 +41,6 @@
   function syncSupplyFields(){
     const data=customerData();
     const code=field('state_code'); if(code) code.value=data.stateCode||'';
-    const place=field('place_of_supply'); if(place) place.value=data.state||'';
   }
   function updateCustomer(){
     syncSupplyFields();
@@ -85,6 +84,8 @@
   form.querySelectorAll('[name="customer_type"]').forEach(el=>el.addEventListener('change',()=>{updateCustomerMode();recalc();}));
   form.addEventListener('submit',async(e)=>{
     if(isNewCustomer()){const required=[['new_customer_name','Customer Name']]; const missing=required.find(([name])=>!field(name)?.value.trim()); if(missing){e.preventDefault(); field(missing[0])?.focus(); alert(`${missing[1]} is required for a new customer.`); return;}}
+    const hasDescription=Array.from(form.querySelectorAll('[name="item_name[]"]')).some(input=>input.value.trim());
+    if(!hasDescription){e.preventDefault(); form.querySelector('[name="item_name[]"]')?.focus(); alert('Description is required for at least one product or service.'); return;}
     e.preventDefault();
     const alertBox=document.getElementById('invoiceAlert');
     const overlay=document.getElementById('loadingOverlay');
