@@ -1,7 +1,7 @@
 """Multi-tenant SaaS web application for GST invoice generation."""
 from __future__ import annotations
 
-import logging, os, secrets, smtplib, sys
+import html, logging, os, secrets, smtplib, sys
 from functools import wraps
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -421,28 +421,87 @@ def friendly_invoice_error(exc: Exception) -> str:
     return msg
 
 
+def password_reset_link(token: str) -> str:
+    base_url = (os.getenv("APP_URL") or request.url_root).rstrip("/")
+    return f"{base_url}{url_for('reset_password')}?token={token}"
+
+
+def reset_email_content(link: str) -> tuple[str, str]:
+    safe_link = html.escape(link, quote=True)
+    text = (
+        "Hello,\n\n"
+        "We received a request to reset your GST Smart password. Use the link below to set a new password:\n"
+        f"{link}\n\n"
+        "This link expires in 30 minutes. If you did not request a password reset, you can ignore this email.\n\n"
+        "GST Smart Team"
+    )
+    html_body = f"""
+    <p>Hello,</p>
+    <p>We received a request to reset your GST Smart password.</p>
+    <p><a href="{safe_link}" style="display:inline-block;padding:12px 18px;background:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;">Reset your password</a></p>
+    <p>If the button does not work, copy and paste this link into your browser:</p>
+    <p><a href="{safe_link}">{safe_link}</a></p>
+    <p>This link expires in 30 minutes.</p>
+    <p>If you did not request a password reset, you can ignore this email.</p>
+    <p>GST Smart Team</p>
+    """.strip()
+    return html_body, text
+
+
 def send_reset_email(user: User, token: str) -> bool:
+    link = password_reset_link(token)
+    html_body, text_body = reset_email_content(link)
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    from_email = os.getenv("FROM_EMAIL", "noreply@gstsmart.com")
+    sender = from_email if "<" in from_email else f"GST Smart <{from_email}>"
+    reply_to = os.getenv("REPLY_TO_EMAIL", "gstsmartsupport@gmail.com")
+
+    if resend_api_key:
+        import requests
+
+        try:
+            response = requests.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_api_key}", "Content-Type": "application/json"},
+                json={
+                    "from": sender,
+                    "to": user.email,
+                    "reply_to": reply_to,
+                    "subject": "Reset your GST Smart password",
+                    "html": html_body,
+                    "text": text_body,
+                },
+                timeout=15,
+            )
+            response.raise_for_status()
+            return True
+        except requests.RequestException as exc:
+            logger.error("Failed to send password reset email through Resend: %s", exc, extra={"user_id": user.id})
+            return False
+
     host = os.getenv("MAIL_SERVER") or os.getenv("SMTP_HOST")
-    sender = os.getenv("MAIL_FROM") or os.getenv("SMTP_FROM")
-    if not host or not sender:
-        logger.error("Password reset email is not configured", extra={"user_id": user.id})
+    smtp_sender = os.getenv("MAIL_FROM") or os.getenv("SMTP_FROM") or sender
+    if not host or not smtp_sender:
+        logger.error("Password reset email provider is not configured", extra={"user_id": user.id})
         return False
     port = int(os.getenv("MAIL_PORT") or os.getenv("SMTP_PORT") or 587)
     username = os.getenv("MAIL_USERNAME") or os.getenv("SMTP_USERNAME")
     password = os.getenv("MAIL_PASSWORD") or os.getenv("SMTP_PASSWORD")
     use_tls = (os.getenv("MAIL_USE_TLS") or "true").lower() in {"1", "true", "yes", "on"}
-    link = url_for("reset_password", token=token, _external=True)
-    message = f"Subject: Reset your GST Smart password\nTo: {user.email}\nFrom: {sender}\n\nUse this secure link to reset your GST Smart password. It expires in 1 hour:\n{link}\n"
+    message = (
+        f"Subject: Reset your GST Smart password\nTo: {user.email}\nFrom: {smtp_sender}\nReply-To: {reply_to}\n"
+        f"Content-Type: text/plain; charset=utf-8\n\n{text_body}\n"
+    )
     try:
         with smtplib.SMTP(host, port, timeout=15) as smtp:
             if use_tls:
                 smtp.starttls()
             if username:
                 smtp.login(username, password or "")
-            smtp.sendmail(sender, [user.email], message)
+            smtp.sendmail(smtp_sender, [user.email], message)
         return True
     except Exception:
-        logger.exception("Failed to send password reset email", extra={"user_id": user.id})
+        logger.exception("Failed to send password reset email through SMTP", extra={"user_id": user.id})
         return False
 
 
@@ -591,18 +650,16 @@ def forgot_password():
         user = User.query.filter_by(email=email).first()
         if user:
             token_value = secrets.token_urlsafe(32)
-            reset = PasswordResetToken(user_id=user.id, token=token_value, expires_at=datetime.utcnow() + timedelta(hours=1))
+            reset = PasswordResetToken(user_id=user.id, token=token_value, expires_at=datetime.utcnow() + timedelta(minutes=30))
             db.session.add(reset); db.session.commit()
-            if send_reset_email(user, token_value):
-                flash("Password reset link sent to your registered email.", "success")
-            else:
-                flash("Email service is not configured. Please contact gstsmartsupport@gmail.com for password reset help.", "warning")
-        else:
-            flash("If the email exists, a reset link will be sent to the registered email.", "info")
+            send_reset_email(user, token_value)
+        flash("If an account exists with this email, password reset instructions have been sent.", "success")
     return render_template("auth/forgot_password.html")
 
+@app.route("/reset-password", methods=["GET", "POST"])
 @app.route("/reset-password/<token>", methods=["GET", "POST"])
-def reset_password(token):
+def reset_password(token=None):
+    token = token or request.args.get("token", "")
     reset = PasswordResetToken.query.filter_by(token=token).first()
     if not reset or reset.used_at or reset.expires_at < datetime.utcnow():
         flash("Password reset link is invalid or expired.", "danger")
