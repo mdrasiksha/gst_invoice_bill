@@ -21,7 +21,7 @@ def client(tmp_path, monkeypatch):
     with app.app_context():
         db.drop_all()
         db.create_all()
-        company = Company(company_name="Acme", gstin="29ABCDE1234F1Z5", address="Addr", city="Bengaluru", state="KA", pin_code="560001")
+        company = Company(company_name="Acme", gstin="29ABCDE1234F1Z5", address="Addr", city="Bengaluru", state="KA", pin_code="560001", phone="9876543210")
         user = User(username="u", email="user@example.com", company=company)
         user.set_password("password123")
         db.session.add_all([company, user])
@@ -326,15 +326,68 @@ def test_create_invoice_autofills_state_code_place_and_uses_igst_for_different_s
         assert inv.igst == 18.0
 
 
-def test_create_invoice_rejects_state_code_mismatch(client):
+def test_create_invoice_ignores_state_code_mismatch_and_uses_customer_state(client):
     login(client)
     rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={
         **invoice_post_data(invoice_number="INV-STATE-BAD", new_customer_state="Tamil Nadu", state_code="29"),
         "csrf_token": csrf(client),
     })
-    assert rv.status_code == 400
-    assert "state does not match the state code" in rv.json["message"]
+    assert rv.status_code == 200
+    assert rv.json["ok"] is True
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-STATE-BAD").one()
+        assert inv.state_code == "33"
+        assert inv.place_of_supply == "Tamil Nadu"
 
+
+def test_login_failed_password_keeps_entered_email(client):
+    rv = client.post('/login', data={"csrf_token": csrf(client), "email": "user@example.com", "password": "wrong"})
+    assert rv.status_code == 200
+    assert b'value="user@example.com"' in rv.data
+
+
+def test_admin_dashboard_shows_user_phone_numbers(client):
+    login(client)
+    with app.app_context():
+        user = User.query.filter_by(email="user@example.com").one()
+        user.is_admin = True
+        db.session.commit()
+    rv = client.get('/admin/dashboard')
+    assert rv.status_code == 200
+    assert b'<th>Phone</th>' in rv.data
+    assert b'9876543210' in rv.data
+
+
+
+def test_create_invoice_only_requires_customer_name_and_description(client):
+    login(client)
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={
+        **invoice_post_data(
+            invoice_number="INV-MINIMUM-REQUIRED",
+            new_customer_state="",
+            state_code="",
+            invoice_date="",
+            due_date="",
+            **{"quantity[]": "", "unit_price[]": ""},
+        ),
+        "csrf_token": csrf(client),
+    })
+    assert rv.status_code == 200
+    assert rv.json["ok"] is True
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-MINIMUM-REQUIRED").one()
+        assert inv.customer.customer_name == "Walk In Buyer"
+        assert inv.items[0].item_name == "Service"
+        assert inv.items[0].quantity == 1.0
+        assert inv.items[0].unit_price == 0.0
+
+
+def test_create_invoice_form_does_not_show_state_code_as_required_input(client):
+    login(client)
+    rv = client.get('/invoice/new')
+    assert rv.status_code == 200
+    assert b'State Code' not in rv.data
+    assert b'name="state_code"' in rv.data
 
 def test_description_suggestions_are_ranked_by_frequency_then_recency(client):
     login(client)
