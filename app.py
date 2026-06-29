@@ -696,10 +696,9 @@ def customer_delete(customer_id):
         if not customer:
             flash("Customer not found or you do not have access to it.", "warning")
             return redirect(url_for("customers"))
-        linked_invoice_count = Invoice.query.filter_by(company_id=current_user.company_id, customer_id=customer.id).count()
-        if linked_invoice_count:
-            flash("This customer has invoices linked. Please delete or reassign those invoices before deleting the customer.", "warning")
-            return redirect(url_for("customers"))
+        linked_invoices = Invoice.query.filter_by(company_id=current_user.company_id, customer_id=customer.id).all()
+        for invoice in linked_invoices:
+            db.session.delete(invoice)
         db.session.delete(customer)
         db.session.commit()
         flash("Customer deleted successfully.", "success")
@@ -744,12 +743,17 @@ def create_invoice():
                 raise ValueError("Customer state does not match the state code.")
             customer.state = customer_state
             customer.state_code = supply_code
-            inv=Invoice(company=current_user.company, customer=customer, created_by_user_id=current_user.id, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=parse_required_date(request.form.get("invoice_date"),"Invoice date"), due_date=parse_required_date(request.form.get("due_date"),"Due date"), place_of_supply=customer_state, state_code=supply_code)
+            invoice_date = parse_required_date(request.form.get("invoice_date"), "Invoice date")
+            due_date = parse_required_date(request.form.get("due_date") or request.form.get("invoice_date"), "Due date")
+            inv=Invoice(company=current_user.company, customer=customer, created_by_user_id=current_user.id, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=invoice_date, due_date=due_date, place_of_supply=customer_state, state_code=supply_code)
             setattr(inv, "terms", request.form.get("terms", "").strip())
             hsn_values=request.form.getlist("hsn_sac[]"); qty_values=request.form.getlist("quantity[]"); price_values=request.form.getlist("unit_price[]"); gst_values=request.form.getlist("gst_percentage[]")
             for idx,name in enumerate(request.form.getlist("item_name[]")):
                 if not name.strip(): continue
-                item=InvoiceItem(item_name=name.strip(), hsn_sac=hsn_values[idx].strip() if idx < len(hsn_values) else "", quantity=parse_positive_float(qty_values[idx],"Quantity"), unit_price=parse_positive_float(price_values[idx],"Unit price",allow_zero=True), gst_percentage=parse_gst_rate(gst_values[idx]))
+                quantity = parse_positive_float(qty_values[idx], "Quantity") if idx < len(qty_values) and qty_values[idx].strip() else 1.0
+                unit_price = parse_positive_float(price_values[idx], "Unit price", allow_zero=True) if idx < len(price_values) and price_values[idx].strip() else 0.0
+                gst_percentage = parse_gst_rate(gst_values[idx]) if idx < len(gst_values) and gst_values[idx].strip() else 0.0
+                item=InvoiceItem(item_name=name.strip(), hsn_sac=hsn_values[idx].strip() if idx < len(hsn_values) else "", quantity=quantity, unit_price=unit_price, gst_percentage=gst_percentage)
                 validate_item(item); inv.items.append(item)
             if not inv.items: raise ValueError("Add at least one product or service row.")
             validate_invoice_dates(inv.invoice_date, inv.due_date); calculate_invoice(inv); db.session.add(inv); db.session.flush(); inv.pdf_path=pdf.generate(inv); remember_description_suggestions(current_user.id, inv.items); db.session.commit(); logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
