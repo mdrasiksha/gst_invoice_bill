@@ -105,13 +105,15 @@ def test_contact_email_updated(client):
     assert b'gstsmartsupport@gmail.com' in rv.data
 
 
-def test_forgot_password_creates_token_and_handles_missing_email_config(client, monkeypatch):
+def test_forgot_password_creates_token_and_hides_email_config_status(client, monkeypatch):
+    monkeypatch.delenv('RESEND_API_KEY', raising=False)
     monkeypatch.delenv('MAIL_SERVER', raising=False); monkeypatch.delenv('SMTP_HOST', raising=False)
     rv = client.post('/forgot-password', data={"csrf_token": csrf(client), "email":"user@example.com"}, follow_redirects=True)
-    assert b'Email service is not configured' in rv.data
+    assert b'If an account exists with this email, password reset instructions have been sent.' in rv.data
+    assert b'Email service is not configured' not in rv.data
     with app.app_context():
         token = PasswordResetToken.query.one()
-        assert token.expires_at > datetime.utcnow()
+        assert datetime.utcnow() < token.expires_at <= datetime.utcnow() + timedelta(minutes=31)
 
 
 def test_reset_password_updates_password(client):
