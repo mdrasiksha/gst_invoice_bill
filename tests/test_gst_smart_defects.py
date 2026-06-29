@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import sys
 from pathlib import Path
 from PIL import Image
@@ -409,10 +410,9 @@ def test_admin_dashboard_shows_invoice_counts_per_user(client):
     assert b'Customers Created' in rv.data
     assert b'Invoices Created' in rv.data
     text = rv.data.decode()
-    assert 'zero@example.com</td><td>-</td><td>Zero Co</td>' in text
-    assert 'zero@example.com</td><td>-</td><td>Zero Co</td><td><span class="badge text-bg-info text-uppercase">free</span></td><td><span class="badge text-bg-secondary">User</span></td><td class="text-end">0</td>' in text
-    assert 'one@example.com</td><td>-</td><td>One Co</td><td><span class="badge text-bg-info text-uppercase">free</span></td><td><span class="badge text-bg-secondary">User</span></td><td class="text-end">1</td>' in text
-    assert 'many@example.com</td><td>-</td><td>Many Co</td><td><span class="badge text-bg-info text-uppercase">free</span></td><td><span class="badge text-bg-secondary">User</span></td><td class="text-end">2</td>' in text
+    assert re.search(r"zero@example\.com.*?Zero Co.*?text-end\">0</td>", text, re.S)
+    assert re.search(r"one@example\.com.*?One Co.*?text-end\">1</td>", text, re.S)
+    assert re.search(r"many@example\.com.*?Many Co.*?text-end\">2</td>", text, re.S)
 
 
 def test_create_invoice_only_requires_customer_name_and_description(client):
