@@ -117,7 +117,12 @@ def create_app() -> Flask:
     @app.context_processor
     def inject_globals():
         session.setdefault("csrf_token", secrets.token_urlsafe(32))
-        return {"csrf_token": session["csrf_token"]}
+        def upload_exists(path_value: str) -> bool:
+            if not path_value:
+                return False
+            path = Path(path_value)
+            return (path if path.is_absolute() else BASE_DIR / path).exists()
+        return {"csrf_token": session["csrf_token"], "upload_exists": upload_exists}
 
     @app.route("/robots.txt")
     def robots_txt():
@@ -367,17 +372,15 @@ def save_signature(upload) -> str:
 
 def build_new_invoice_customer(form) -> Customer:
     """Validate new-customer invoice fields separately from existing-customer lookup."""
-    required_fields = {
-        "new_customer_name": "Customer Name",
-        "new_customer_address": "Customer Address",
-        "new_customer_city": "Customer City",
-        "new_customer_state": "Customer State",
-        "new_customer_pincode": "Customer Pincode",
+    values = {
+        "new_customer_name": form.get("new_customer_name", "").strip(),
+        "new_customer_address": form.get("new_customer_address", "").strip(),
+        "new_customer_city": form.get("new_customer_city", "").strip(),
+        "new_customer_state": form.get("new_customer_state", "").strip(),
+        "new_customer_pincode": form.get("new_customer_pincode", "").strip(),
     }
-    values = {name: form.get(name, "").strip() for name in required_fields}
-    missing = [label for name, label in required_fields.items() if not values[name]]
-    if missing:
-        raise ValueError(f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} required for a new customer.")
+    if not values["new_customer_name"]:
+        raise ValueError("Customer Name is required for a new customer.")
 
     gstin = form.get("new_customer_gstin", "").strip().upper()
     phone = form.get("new_customer_phone", "").strip()
@@ -732,8 +735,8 @@ def create_invoice():
                 if not customer_id:
                     raise ValueError("Customer selection is required for an existing customer.")
                 customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first_or_404()
-            customer_state = normalize_state_name(customer.state)
-            supply_code = state_code_from_state(customer_state)
+            customer_state = normalize_state_name(customer.state) or normalize_state_name(current_user.company.state)
+            supply_code = state_code_from_state(customer_state) or (current_user.company.state_code or "").strip().zfill(2)
             if not supply_code:
                 raise ValueError("Customer state must be a valid Indian state or union territory.")
             submitted_state_code = request.form.get("state_code", "").strip().zfill(2)
@@ -760,7 +763,7 @@ def create_invoice():
                 return jsonify({"ok": False, "message": message}), 400
             flash(message, "danger")
     defaults={"invoice_number":next_invoice_number(current_user.company_id),"invoice_date":date.today().isoformat(),"due_date":(date.today()+timedelta(days=15)).isoformat()}
-    return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES, indian_states=INDIAN_STATE_CODES, description_suggestions=user_description_suggestions(current_user.id))
+    return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).order_by(Customer.customer_name.asc(), Customer.id.asc()).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES, indian_states=INDIAN_STATE_CODES, description_suggestions=user_description_suggestions(current_user.id), amount_to_words=amount_to_words)
 
 @app.route("/invoice/<int:invoice_id>")
 @app.route("/invoice/view/<int:invoice_id>")
@@ -785,9 +788,10 @@ def download_pdf(invoice_id):
     if not inv.company or not inv.customer:
         logger.error("Invoice PDF requested for incomplete invoice", extra={"invoice_id": invoice_id})
         abort(404)
-    path = BASE_DIR / inv.pdf_path if inv.pdf_path else Path(pdf.generate(inv))
-    if not path.exists():
-        path = Path(pdf.generate(inv))
+    # Regenerate on each download so updated company assets/settings (logo, QR, signature) are reflected.
+    inv.pdf_path = pdf.generate(inv)
+    db.session.commit()
+    path = Path(inv.pdf_path)
     return send_file(path, as_attachment=True, download_name=f"{inv.invoice_number}.pdf")
 
 @app.route("/invoice/<int:invoice_id>/delete", methods=["POST"])

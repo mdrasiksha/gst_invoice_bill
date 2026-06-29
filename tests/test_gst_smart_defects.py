@@ -199,16 +199,38 @@ def invoice_post_data(**overrides):
     return data
 
 
-def test_new_customer_invoice_validation_is_field_specific(client, caplog):
+def test_new_customer_invoice_validation_only_requires_name(client, caplog):
     login(client)
-    data = invoice_post_data(new_customer_name="", new_customer_address="")
+    data = invoice_post_data(new_customer_name="", new_customer_address="", new_customer_pincode="")
     data["csrf_token"] = csrf(client)
     rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data=data)
     assert rv.status_code == 400
     assert "Customer Name" in rv.json["message"]
-    assert "Customer Address" in rv.json["message"]
+    assert "Customer Address" not in rv.json["message"]
+    assert "Pincode" not in rv.json["message"]
     assert "Missing customer details" not in rv.json["message"]
     assert "Invoice generation failed" in caplog.text
+
+
+def test_new_customer_invoice_allows_empty_pin_and_address_fields(client):
+    login(client)
+    data = invoice_post_data(
+        invoice_number="INV-NO-PIN",
+        new_customer_address="",
+        new_customer_city="",
+        new_customer_state="",
+        new_customer_pincode="",
+        state_code="29",
+        place_of_supply="",
+    )
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**data, "csrf_token": csrf(client)})
+    assert rv.status_code == 200
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-NO-PIN").one()
+        assert inv.customer.pin_code == ""
+        assert inv.customer.address == ""
+        assert inv.customer.state == "Karnataka"
+        assert inv.state_code == "29"
 
 
 def test_new_customer_without_gstin_generates_pdf_and_hides_gstin(client):
@@ -226,6 +248,38 @@ def test_new_customer_without_gstin_generates_pdf_and_hides_gstin(client):
     assert b'Walk In Buyer' in customers_page.data
     assert b'Unregistered' not in customers_page.data
     assert b'Not provided' not in customers_page.data
+
+
+def test_customers_page_shows_linked_invoice_details(client):
+    login(client)
+    with app.app_context():
+        inv = make_invoice(); invoice_number = inv.invoice_number
+    rv = client.get('/customers')
+    assert invoice_number.encode() in rv.data
+    assert b'22-06-2026' in rv.data
+    assert '₹100.00'.encode() in rv.data
+    assert b'Saved' in rv.data
+
+
+def test_existing_customer_invoice_uses_selected_customer(client):
+    login(client)
+    with app.app_context():
+        company = Company.query.first()
+        first = Customer(company_id=company.id, customer_name="First Buyer", email="first@example.com", phone="1111111", gstin="", address="First Addr", city="Bengaluru", state="Karnataka", pin_code="111111", state_code="29")
+        second = Customer(company_id=company.id, customer_name="Second Buyer", email="second@example.com", phone="2222222", gstin="", address="Second Addr", city="Chennai", state="Tamil Nadu", pin_code="222222", state_code="33")
+        db.session.add_all([first, second]); db.session.commit(); second_id = second.id
+    data = invoice_post_data(customer_type="existing", customer_id=str(second_id), invoice_number="INV-EXISTING-SELECTED", state_code="33")
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**data, "csrf_token": csrf(client)})
+    assert rv.status_code == 200
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-EXISTING-SELECTED").one()
+        assert inv.customer_id == second_id
+        assert inv.customer.customer_name == "Second Buyer"
+        assert inv.customer.email == "second@example.com"
+        assert inv.customer.phone == "2222222"
+        assert inv.customer.address == "Second Addr"
+        assert inv.customer.state == "Tamil Nadu"
+        assert inv.customer.pin_code == "222222"
 
 
 @pytest.mark.parametrize("code,state", INDIAN_STATE_CODES.items())
