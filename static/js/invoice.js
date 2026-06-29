@@ -6,7 +6,26 @@
   const descriptionSuggestions=JSON.parse(form.dataset.descriptionSuggestions||'[]');
   const normalizeText=(value)=>(value||'').toString().trim().toLowerCase();
   const escapeHtml=(value)=>(value||'').toString().replace(/[&<>'"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
-  function toWords(n){return `Rupees ${Math.round(n)} Only`}
+  const ONES=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  const TENS=['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  function twoDigitWords(number){number=Number(number)||0; if(number<20)return ONES[number]; return `${TENS[Math.floor(number/10)]} ${ONES[number%10]}`.trim();}
+  function threeDigitWords(number){number=Number(number)||0; const words=[]; if(number>=100){words.push(`${ONES[Math.floor(number/100)]} Hundred`); number%=100;} if(number)words.push(twoDigitWords(number)); return words.join(' ');}
+  function toWords(n){
+    const roundedAmount=Math.round((Number(n)||0)*100)/100;
+    let rupees=Math.floor(roundedAmount);
+    const paise=Math.round((roundedAmount-rupees)*100);
+    let words='Zero';
+    if(rupees>0){
+      const parts=[];
+      const crore=Math.floor(rupees/10000000); rupees%=10000000;
+      const lakh=Math.floor(rupees/100000); rupees%=100000;
+      const thousand=Math.floor(rupees/1000); rupees%=1000;
+      [[crore,'Crore'],[lakh,'Lakh'],[thousand,'Thousand']].forEach(([value,label])=>{if(value)parts.push(`${threeDigitWords(value)} ${label}`);});
+      if(rupees)parts.push(threeDigitWords(rupees));
+      words=parts.join(' ');
+    }
+    return `Rupees ${words}${paise?` and ${twoDigitWords(paise)} Paise`:''} Only`;
+  }
   function isNewCustomer(){return field('customer_type')?.value==='new' || document.getElementById('customerNew')?.checked;}
   function customerData(){
     if(isNewCustomer()){
@@ -65,7 +84,7 @@
   form.querySelectorAll('.live,input,select,textarea').forEach(el=>el.addEventListener('input',()=>{updateCustomerMode();recalc();}));
   form.querySelectorAll('[name="customer_type"]').forEach(el=>el.addEventListener('change',()=>{updateCustomerMode();recalc();}));
   form.addEventListener('submit',async(e)=>{
-    if(isNewCustomer()){const required=[['new_customer_name','Customer Name'],['new_customer_address','Customer Address'],['new_customer_city','Customer City'],['new_customer_state','Customer State'],['new_customer_pincode','Customer Pincode']]; const missing=required.find(([name])=>!field(name)?.value.trim()); if(missing){e.preventDefault(); field(missing[0])?.focus(); alert(`${missing[1]} is required for a new customer.`); return;}}
+    if(isNewCustomer()){const required=[['new_customer_name','Customer Name']]; const missing=required.find(([name])=>!field(name)?.value.trim()); if(missing){e.preventDefault(); field(missing[0])?.focus(); alert(`${missing[1]} is required for a new customer.`); return;}}
     e.preventDefault();
     const alertBox=document.getElementById('invoiceAlert');
     const overlay=document.getElementById('loadingOverlay');
