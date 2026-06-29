@@ -633,6 +633,7 @@ def login():
             else:
                 resp.delete_cookie("remembered_email")
             return resp
+        remembered_email = email or remembered_email
         flash("Invalid email or password", "danger")
     return render_template("auth/login.html", remembered_email=remembered_email)
 
@@ -793,15 +794,13 @@ def create_invoice():
                 customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first_or_404()
             customer_state = normalize_state_name(customer.state) or normalize_state_name(current_user.company.state)
             supply_code = state_code_from_state(customer_state) or (current_user.company.state_code or "").strip().zfill(2)
-            if not supply_code:
-                raise ValueError("Customer state must be a valid Indian state or union territory.")
-            submitted_state_code = request.form.get("state_code", "").strip().zfill(2)
-            if submitted_state_code and submitted_state_code != supply_code:
-                raise ValueError("Customer state does not match the state code.")
+            # Treat the submitted state code as a helper/autofill value only.
+            # A stale or manually mistyped code should not block invoice creation;
+            # the authoritative code comes from the selected customer state.
             customer.state = customer_state
             customer.state_code = supply_code
-            invoice_date = parse_required_date(request.form.get("invoice_date"), "Invoice date")
-            due_date = parse_required_date(request.form.get("due_date") or request.form.get("invoice_date"), "Due date")
+            invoice_date = parse_required_date(request.form.get("invoice_date") or date.today().isoformat(), "Invoice date")
+            due_date = parse_required_date(request.form.get("due_date") or invoice_date.isoformat(), "Due date")
             inv=Invoice(company=current_user.company, customer=customer, created_by_user_id=current_user.id, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=invoice_date, due_date=due_date, place_of_supply=customer_state, state_code=supply_code)
             setattr(inv, "terms", request.form.get("terms", "").strip())
             hsn_values=request.form.getlist("hsn_sac[]"); qty_values=request.form.getlist("quantity[]"); price_values=request.form.getlist("unit_price[]"); gst_values=request.form.getlist("gst_percentage[]")
@@ -873,14 +872,20 @@ def admin_index():
 @app.route("/admin/dashboard")
 @admin_required
 def admin_dashboard():
-    month_start, next_month = current_month_bounds()
     stats = {
         "users": User.query.count(),
-        "companies": Company.query.count(),
+        "active_users": db.session.query(func.count(func.distinct(Invoice.created_by_user_id))).filter(Invoice.created_by_user_id.isnot(None)).scalar() or 0,
         "invoices": Invoice.query.count(),
-        "monthly_invoices": Invoice.query.filter(Invoice.created_at >= month_start, Invoice.created_at < next_month).count(),
+        "customers": Customer.query.count(),
     }
-    latest_users = User.query.order_by(User.created_at.desc(), User.id.desc()).limit(10).all()
+    latest_users = (
+        db.session.query(User, func.count(Invoice.id).label("invoice_count"))
+        .outerjoin(Invoice, Invoice.created_by_user_id == User.id)
+        .group_by(User.id)
+        .order_by(User.created_at.desc(), User.id.desc())
+        .limit(10)
+        .all()
+    )
     latest_invoices = Invoice.query.order_by(Invoice.created_at.desc(), Invoice.id.desc()).limit(10).all()
     user_invoice_counts = (
         db.session.query(User, func.count(Invoice.id).label("invoice_count"))

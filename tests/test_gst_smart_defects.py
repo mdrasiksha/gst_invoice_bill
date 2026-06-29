@@ -21,7 +21,7 @@ def client(tmp_path, monkeypatch):
     with app.app_context():
         db.drop_all()
         db.create_all()
-        company = Company(company_name="Acme", gstin="29ABCDE1234F1Z5", address="Addr", city="Bengaluru", state="KA", pin_code="560001")
+        company = Company(company_name="Acme", gstin="29ABCDE1234F1Z5", address="Addr", city="Bengaluru", state="KA", pin_code="560001", phone="9876543210")
         user = User(username="u", email="user@example.com", company=company)
         user.set_password("password123")
         db.session.add_all([company, user])
@@ -326,15 +326,124 @@ def test_create_invoice_autofills_state_code_place_and_uses_igst_for_different_s
         assert inv.igst == 18.0
 
 
-def test_create_invoice_rejects_state_code_mismatch(client):
+def test_create_invoice_ignores_state_code_mismatch_and_uses_customer_state(client):
     login(client)
     rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={
         **invoice_post_data(invoice_number="INV-STATE-BAD", new_customer_state="Tamil Nadu", state_code="29"),
         "csrf_token": csrf(client),
     })
-    assert rv.status_code == 400
-    assert "state does not match the state code" in rv.json["message"]
+    assert rv.status_code == 200
+    assert rv.json["ok"] is True
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-STATE-BAD").one()
+        assert inv.state_code == "33"
+        assert inv.place_of_supply == "Tamil Nadu"
 
+
+def test_login_failed_password_keeps_entered_email(client):
+    rv = client.post('/login', data={"csrf_token": csrf(client), "email": "user@example.com", "password": "wrong"})
+    assert rv.status_code == 200
+    assert b'value="user@example.com"' in rv.data
+
+
+def test_admin_dashboard_shows_user_phone_numbers(client):
+    login(client)
+    with app.app_context():
+        user = User.query.filter_by(email="user@example.com").one()
+        user.is_admin = True
+        db.session.commit()
+    rv = client.get('/admin/dashboard')
+    assert rv.status_code == 200
+    assert b'<th>Phone</th>' in rv.data
+    assert b'9876543210' in rv.data
+
+
+
+def test_admin_dashboard_shows_invoice_counts_per_user(client):
+    login(client)
+    with app.app_context():
+        admin = User.query.filter_by(email="user@example.com").one()
+        admin.is_admin = True
+
+        zero_company = Company(company_name="Zero Co", gstin="29ABCDE1234F1Z6", address="Addr")
+        zero_user = User(username="zero", email="zero@example.com", company=zero_company)
+        zero_user.set_password("password123")
+
+        one_company = Company(company_name="One Co", gstin="29ABCDE1234F1Z7", address="Addr")
+        one_user = User(username="one", email="one@example.com", company=one_company)
+        one_user.set_password("password123")
+
+        many_company = Company(company_name="Many Co", gstin="29ABCDE1234F1Z8", address="Addr")
+        many_user = User(username="many", email="many@example.com", company=many_company)
+        many_user.set_password("password123")
+        db.session.add_all([zero_company, zero_user, one_company, one_user, many_company, many_user])
+        db.session.flush()
+
+        def add_invoice(user, company, number):
+            customer = Customer(company_id=company.id, customer_name=f"Buyer {number}", address="Addr")
+            invoice = Invoice(
+                company_id=company.id,
+                customer=customer,
+                created_by_user_id=user.id,
+                invoice_number=number,
+                invoice_date=datetime(2026, 6, 22).date(),
+                due_date=datetime(2026, 6, 23).date(),
+                grand_total=100,
+            )
+            db.session.add(invoice)
+            return invoice
+
+        add_invoice(one_user, one_company, "ONE-1")
+        add_invoice(many_user, many_company, "MANY-1")
+        add_invoice(many_user, many_company, "MANY-2")
+        deleted_invoice = add_invoice(many_user, many_company, "MANY-DELETED")
+        db.session.flush()
+        db.session.delete(deleted_invoice)
+        db.session.commit()
+
+    rv = client.get('/admin/dashboard')
+    assert rv.status_code == 200
+    assert b'Total Users' in rv.data
+    assert b'Active Users' in rv.data
+    assert b'Total Invoices' in rv.data
+    assert b'Customers Created' in rv.data
+    assert b'Invoices Created' in rv.data
+    text = rv.data.decode()
+    assert 'zero@example.com</td><td>-</td><td>Zero Co</td>' in text
+    assert 'zero@example.com</td><td>-</td><td>Zero Co</td><td><span class="badge text-bg-info text-uppercase">free</span></td><td><span class="badge text-bg-secondary">User</span></td><td class="text-end">0</td>' in text
+    assert 'one@example.com</td><td>-</td><td>One Co</td><td><span class="badge text-bg-info text-uppercase">free</span></td><td><span class="badge text-bg-secondary">User</span></td><td class="text-end">1</td>' in text
+    assert 'many@example.com</td><td>-</td><td>Many Co</td><td><span class="badge text-bg-info text-uppercase">free</span></td><td><span class="badge text-bg-secondary">User</span></td><td class="text-end">2</td>' in text
+
+
+def test_create_invoice_only_requires_customer_name_and_description(client):
+    login(client)
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={
+        **invoice_post_data(
+            invoice_number="INV-MINIMUM-REQUIRED",
+            new_customer_state="",
+            state_code="",
+            invoice_date="",
+            due_date="",
+            **{"quantity[]": "", "unit_price[]": ""},
+        ),
+        "csrf_token": csrf(client),
+    })
+    assert rv.status_code == 200
+    assert rv.json["ok"] is True
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-MINIMUM-REQUIRED").one()
+        assert inv.customer.customer_name == "Walk In Buyer"
+        assert inv.items[0].item_name == "Service"
+        assert inv.items[0].quantity == 1.0
+        assert inv.items[0].unit_price == 0.0
+
+
+def test_create_invoice_form_does_not_show_state_code_as_required_input(client):
+    login(client)
+    rv = client.get('/invoice/new')
+    assert rv.status_code == 200
+    assert b'State Code' not in rv.data
+    assert b'name="state_code"' in rv.data
 
 def test_description_suggestions_are_ranked_by_frequency_then_recency(client):
     login(client)
