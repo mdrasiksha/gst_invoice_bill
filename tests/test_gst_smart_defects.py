@@ -52,7 +52,7 @@ def test_invoice_errors_are_friendly_and_logged(client, caplog):
         "csrf_token": csrf(client), "customer_type": "new", "new_customer_name": "", "invoice_date": "2026-06-22", "due_date": "2026-06-23"
     })
     assert rv.status_code == 400
-    assert rv.json["message"].startswith("Customer Name")
+    assert rv.json["message"].startswith("Missing invoice items")
     assert "Invoice generation failed" in caplog.text
 
 
@@ -202,17 +202,18 @@ def invoice_post_data(**overrides):
     return data
 
 
-def test_new_customer_invoice_validation_only_requires_name(client, caplog):
+def test_new_customer_invoice_allows_blank_customer_metadata(client, caplog):
     login(client)
     data = invoice_post_data(new_customer_name="", new_customer_address="", new_customer_pincode="")
     data["csrf_token"] = csrf(client)
     rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data=data)
-    assert rv.status_code == 400
-    assert "Customer Name" in rv.json["message"]
+    assert rv.status_code == 200
+    assert rv.json["ok"] is True
+    assert "Customer Name" not in rv.json["message"]
     assert "Customer Address" not in rv.json["message"]
     assert "Pincode" not in rv.json["message"]
     assert "Missing customer details" not in rv.json["message"]
-    assert "Invoice generation failed" in caplog.text
+    assert "Invoice generation failed" not in caplog.text
 
 
 def test_new_customer_invoice_allows_empty_pin_and_address_fields(client):
