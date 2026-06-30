@@ -7,12 +7,6 @@ from pathlib import Path
 from .models import Invoice
 from .utils import amount_to_words
 
-DEFAULT_TERMS = (
-    "Payment is due on or before the due date.",
-    "Goods/services once sold will not be taken back unless agreed in writing.",
-    "Subject to local jurisdiction.",
-)
-
 BASE_DIR = Path(__file__).resolve().parent
 INVOICE_DIR = BASE_DIR / "invoices"
 logger = logging.getLogger(__name__)
@@ -156,20 +150,10 @@ class PDFGenerator:
         bill = "<br/>".join(bill_lines)
         story += [Table([[Paragraph(bill, styles["Small"])]], colWidths=[182*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#EEF5FF")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 8), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]), Spacer(1, 4*mm)]
 
-        data = [["#", "Item", "HSN/SAC", "Qty", "Unit Price", "GST %", "Taxable", "GST", "Total"]]
+        data = [["Sr No", "Description", "HSN/SAC", "Qty", "Unit Price", "GST %", "Amount"]]
         for idx, item in enumerate(invoice.items, 1):
-            data.append([
-                str(idx),
-                Paragraph(esc(item.item_name), styles["Cell"]),
-                Paragraph(esc(item.hsn_sac or ""), styles["CellCenter"]),
-                Paragraph(f"{item.quantity:g}", styles["CellCenter"]),
-                Paragraph(money(item.unit_price), styles["CellCenter"]),
-                Paragraph(f"{item.gst_percentage:g}%", styles["CellCenter"]),
-                Paragraph(money(item.taxable_value), styles["CellCenter"]),
-                Paragraph(money(item.gst_amount), styles["CellCenter"]),
-                Paragraph(money(item.total_amount), styles["CellCenter"]),
-            ])
-        items = Table(data, repeatRows=1, colWidths=[8*mm, 50*mm, 18*mm, 13*mm, 23*mm, 16*mm, 19*mm, 16*mm, 19*mm])
+            data.append([str(idx), Paragraph(esc(item.item_name), styles["Cell"]), Paragraph(esc(item.hsn_sac or ""), styles["CellCenter"]), Paragraph(f"{item.quantity:g}", styles["CellCenter"]), Paragraph(money(item.unit_price), styles["CellCenter"]), Paragraph(f"{item.gst_percentage:g}%", styles["CellCenter"]), Paragraph(money(item.total_amount), styles["CellCenter"])])
+        items = Table(data, repeatRows=1, colWidths=[10*mm, 68*mm, 22*mm, 15*mm, 28*mm, 18*mm, 21*mm])
         items.setStyle(TableStyle([("GRID", (0,0), (-1,-1), 0.4, border), ("BACKGROUND", (0,0), (-1,0), blue), ("TEXTCOLOR", (0,0), (-1,0), colors.white), ("FONTNAME", (0,0), (-1,0), bold), ("FONTNAME", (0,1), (-1,-1), font), ("FONTSIZE", (0,0), (-1,-1), 7.5), ("ALIGN", (0,0), (0,-1), "CENTER"), ("ALIGN", (2,1), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 4), ("RIGHTPADDING", (0,0), (-1,-1), 4), ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5), ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#FAFCFF")])]))
         story += [items, Spacer(1, 4*mm)]
 
@@ -200,10 +184,9 @@ class PDFGenerator:
                 qr_cell = [Image(str(qr_path), width=27*mm, height=27*mm, kind="proportional"), Paragraph("<b>Scan &amp; Pay via UPI</b>", styles["Tiny"])]
             except Exception:
                 logger.warning("Skipping invalid UPI QR image", exc_info=True, extra={"company_id": invoice.company_id})
-        raw_terms = (getattr(invoice, "terms", "") or "").strip()
-        terms_lines = raw_terms.splitlines() if raw_terms else list(DEFAULT_TERMS)
-        terms_body = "<br/>".join(esc(line) for line in terms_lines)
-        terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{terms_body}", styles["Small"])
+        raw_terms = getattr(invoice, "terms", "") or ""
+        terms_body = "<br/>".join(esc(line) for line in raw_terms.splitlines())
+        terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{terms_body}", styles["Small"]) if present(raw_terms) else None
         payment_cells = []
         payment_widths = []
         if bank:
@@ -212,8 +195,9 @@ class PDFGenerator:
         if qr_cell:
             payment_cells.append(qr_cell)
             payment_widths.append(34*mm)
-        payment_cells.append(terms)
-        payment_widths.append(182*mm - sum(payment_widths))
+        if terms:
+            payment_cells.append(terms)
+            payment_widths.append(182*mm - sum(payment_widths))
         payment_style = [("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "TOP"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("LEFTPADDING", (0,0), (-1,-1), 7), ("RIGHTPADDING", (0,0), (-1,-1), 7), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]
         if qr_cell:
             qr_index = payment_cells.index(qr_cell)
