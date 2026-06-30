@@ -185,7 +185,8 @@ class PDFGenerator:
             except Exception:
                 logger.warning("Skipping invalid UPI QR image", exc_info=True, extra={"company_id": invoice.company_id})
         raw_terms = getattr(invoice, "terms", "") or ""
-        terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{esc(raw_terms)}", styles["Small"]) if present(raw_terms) else None
+        terms_body = "<br/>".join(esc(line) for line in raw_terms.splitlines())
+        terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{terms_body}", styles["Small"]) if present(raw_terms) else None
         payment_cells = []
         payment_widths = []
         if bank:

@@ -220,6 +220,7 @@ def ensure_database_columns() -> None:
         for name, ddl in {"city": "VARCHAR(80) DEFAULT ''", "state": "VARCHAR(80) DEFAULT ''", "pin_code": "VARCHAR(12) DEFAULT ''", "email": "VARCHAR(180) DEFAULT ''"}.items():
             add_column("customers", name, ddl)
         add_column("invoices", "round_off", "FLOAT DEFAULT 0")
+        add_column("invoices", "terms", "TEXT DEFAULT ''")
         add_column("invoices", "created_by_user_id", "INTEGER")
 
 
@@ -799,7 +800,7 @@ def create_invoice():
             invoice_date = parse_required_date(request.form.get("invoice_date") or date.today().isoformat(), "Invoice date")
             due_date = parse_required_date(request.form.get("due_date") or invoice_date.isoformat(), "Due date")
             inv=Invoice(company=current_user.company, customer=customer, created_by_user_id=current_user.id, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=invoice_date, due_date=due_date, place_of_supply=customer_state or "", state_code=supply_code)
-            setattr(inv, "terms", request.form.get("terms", "").strip())
+            inv.terms = request.form.get("terms", "").strip()
             hsn_values=request.form.getlist("hsn_sac[]"); qty_values=request.form.getlist("quantity[]"); price_values=request.form.getlist("unit_price[]"); gst_values=request.form.getlist("gst_percentage[]")
             for idx,name in enumerate(request.form.getlist("item_name[]")):
                 if not name.strip(): continue
