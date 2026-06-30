@@ -128,17 +128,11 @@ class PDFGenerator:
         header.setStyle(TableStyle([("BOX", (0,0), (-1,-1), 0.8, border), ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]))
         story += [header, Spacer(1, 4*mm)]
 
-        meta_rows = [["Invoice Number", invoice.invoice_number, "Invoice Date", invoice.invoice_date.strftime("%d-%m-%Y")]]
-        if present(invoice.state_code):
-            meta_rows.append(["Supply State Code", invoice.state_code, "Tax Type", "CGST + SGST" if invoice.is_intrastate else "IGST"])
-        else:
-            meta_rows.append(["Tax Type", "CGST + SGST" if invoice.is_intrastate else "IGST", "", ""])
+        meta_rows = [["Invoice Number", invoice.invoice_number, "Invoice Date", invoice.invoice_date.strftime("%d-%m-%Y")], ["Supply State Code", invoice.state_code, "Tax Type", "CGST + SGST" if invoice.is_intrastate else "IGST"]]
         meta = Table(meta_rows, colWidths=[35*mm, 56*mm, 35*mm, 56*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("BACKGROUND", (0,0), (0,-1), light), ("BACKGROUND", (2,0), (2,-1), light), ("FONTNAME", (0,0), (-1,-1), font), ("FONTNAME", (0,0), (0,-1), bold), ("FONTNAME", (2,0), (2,-1), bold), ("FONTSIZE", (0,0), (-1,-1), 8)])
         story += [meta, Spacer(1, 4*mm)]
         customer_address = ", ".join([p for p in [invoice.customer.address, invoice.customer.city, invoice.customer.state, invoice.customer.pin_code] if present(p)])
-        bill_lines = ["<b><font color='#123C69'>Bill To</font></b>"]
-        if present(invoice.customer.customer_name):
-            bill_lines.append(esc(invoice.customer.customer_name))
+        bill_lines = ["<b><font color='#123C69'>Bill To</font></b>", esc(invoice.customer.customer_name)]
         if present(invoice.customer.gstin):
             bill_lines.append(f"GSTIN: {esc(invoice.customer.gstin)}")
         if present(customer_address):
@@ -152,7 +146,7 @@ class PDFGenerator:
 
         data = [["Sr No", "Description", "HSN/SAC", "Qty", "Unit Price", "GST %", "Amount"]]
         for idx, item in enumerate(invoice.items, 1):
-            data.append([str(idx), Paragraph(esc(item.item_name), styles["Cell"]), Paragraph(esc(item.hsn_sac or ""), styles["CellCenter"]), Paragraph(f"{item.quantity:g}", styles["CellCenter"]), Paragraph(money(item.unit_price), styles["CellCenter"]), Paragraph(f"{item.gst_percentage:g}%", styles["CellCenter"]), Paragraph(money(item.total_amount), styles["CellCenter"])])
+            data.append([str(idx), Paragraph(esc(item.item_name), styles["Cell"]), Paragraph(esc(item.hsn_sac or "-"), styles["CellCenter"]), Paragraph(f"{item.quantity:g}", styles["CellCenter"]), Paragraph(money(item.unit_price), styles["CellCenter"]), Paragraph(f"{item.gst_percentage:g}%", styles["CellCenter"]), Paragraph(money(item.total_amount), styles["CellCenter"])])
         items = Table(data, repeatRows=1, colWidths=[10*mm, 68*mm, 22*mm, 15*mm, 28*mm, 18*mm, 21*mm])
         items.setStyle(TableStyle([("GRID", (0,0), (-1,-1), 0.4, border), ("BACKGROUND", (0,0), (-1,0), blue), ("TEXTCOLOR", (0,0), (-1,0), colors.white), ("FONTNAME", (0,0), (-1,0), bold), ("FONTNAME", (0,1), (-1,-1), font), ("FONTSIZE", (0,0), (-1,-1), 7.5), ("ALIGN", (0,0), (0,-1), "CENTER"), ("ALIGN", (2,1), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 4), ("RIGHTPADDING", (0,0), (-1,-1), 4), ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5), ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#FAFCFF")])]))
         story += [items, Spacer(1, 4*mm)]
@@ -184,8 +178,8 @@ class PDFGenerator:
                 qr_cell = [Image(str(qr_path), width=27*mm, height=27*mm, kind="proportional"), Paragraph("<b>Scan &amp; Pay via UPI</b>", styles["Tiny"])]
             except Exception:
                 logger.warning("Skipping invalid UPI QR image", exc_info=True, extra={"company_id": invoice.company_id})
-        raw_terms = getattr(invoice, "terms", "") or ""
-        terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{esc(raw_terms)}", styles["Small"]) if present(raw_terms) else None
+        terms_text = esc(getattr(invoice, "terms", "") or "1. Goods/services once sold will not be taken back unless agreed in writing.\n2. Subject to local jurisdiction.")
+        terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{terms_text}", styles["Small"])
         payment_cells = []
         payment_widths = []
         if bank:
@@ -194,15 +188,13 @@ class PDFGenerator:
         if qr_cell:
             payment_cells.append(qr_cell)
             payment_widths.append(34*mm)
-        if terms:
-            payment_cells.append(terms)
-            payment_widths.append(182*mm - sum(payment_widths))
+        payment_cells.append(terms)
+        payment_widths.append(182*mm - sum(payment_widths))
         payment_style = [("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "TOP"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("LEFTPADDING", (0,0), (-1,-1), 7), ("RIGHTPADDING", (0,0), (-1,-1), 7), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]
         if qr_cell:
             qr_index = payment_cells.index(qr_cell)
             payment_style.append(("ALIGN", (qr_index,0), (qr_index,0), "CENTER"))
-        if payment_cells:
-            story += [Table([payment_cells], colWidths=payment_widths, style=payment_style), Spacer(1, 5*mm)]
+        story += [Table([payment_cells], colWidths=payment_widths, style=payment_style), Spacer(1, 5*mm)]
 
         signature_parts = []
         signature_path = image_path(getattr(invoice.company, "signature_image_path", ""))
@@ -222,10 +214,10 @@ class PDFGenerator:
         doc.build(story, onFirstPage=page_footer, onLaterPages=page_footer)
 
     def _generate_minimal_pdf(self, invoice: Invoice, path: Path) -> None:
-        lines = ["TAX INVOICE", f"Invoice: {invoice.invoice_number}  Date: {invoice.invoice_date:%d-%m-%Y}", f"Seller: {invoice.company.seller_name}" + (f" GSTIN: {invoice.company.gstin}" if invoice.company.gstin else ""), f"Buyer: {invoice.customer.customer_name}" + (f" GSTIN: {invoice.customer.gstin}" if invoice.customer.gstin else ""), "Items:"]
+        lines = ["TAX INVOICE", f"Invoice: {invoice.invoice_number}  Date: {invoice.invoice_date:%d-%m-%Y}", f"Seller: {invoice.company.seller_name} GSTIN: {invoice.company.gstin}", f"Buyer: {invoice.customer.customer_name}" + (f" GSTIN: {invoice.customer.gstin}" if invoice.customer.gstin else ""), "Items:"]
         for item in invoice.items:
-            lines.append(f"{item.item_name} HSN:{item.hsn_sac or ''} Qty:{item.quantity:g} Total:{item.total_amount:.2f}")
-        lines += [f"Taxable: INR {invoice.taxable_amount:.2f}", f"CGST: INR {invoice.cgst:.2f} SGST: INR {invoice.sgst:.2f} IGST: INR {invoice.igst:.2f}", f"Grand Total: INR {invoice.grand_total:.2f}", amount_to_words(invoice.grand_total), getattr(invoice.company, "authorized_signature_name", "") or ""]
+            lines.append(f"{item.item_name} HSN:{item.hsn_sac or '-'} Qty:{item.quantity:g} Total:{item.total_amount:.2f}")
+        lines += [f"Taxable: INR {invoice.taxable_amount:.2f}", f"CGST: INR {invoice.cgst:.2f} SGST: INR {invoice.sgst:.2f} IGST: INR {invoice.igst:.2f}", f"Grand Total: INR {invoice.grand_total:.2f}", amount_to_words(invoice.grand_total), "Terms and Conditions apply.", getattr(invoice.company, "authorized_signature_name", "") or "", "Authorized Signature"]
         content = "BT /F1 10 Tf 50 800 Td " + " T* ".join(f"({line.replace('(', '[').replace(')', ']')})" for line in lines) + " ET"
         objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", f"<< /Length {len(content.encode())} >>\nstream\n{content}\nendstream"]
         pdf = "%PDF-1.4\n"; offsets = []

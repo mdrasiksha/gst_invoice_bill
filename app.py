@@ -109,8 +109,10 @@ def create_app() -> Flask:
             token = session.get("csrf_token")
             if not token or token != request.form.get("csrf_token"):
                 abort(400, "Invalid CSRF token")
-        if current_user.is_authenticated:
-            ensure_user_company(current_user)
+        if current_user.is_authenticated and request.endpoint not in PUBLIC_ENDPOINTS | {"logout", "company_setup", "static", "uploaded_file", "admin_index", "admin_dashboard"}:
+            company = ensure_user_company(current_user)
+            if not company.profile_complete:
+                return redirect(url_for("company_setup"))
 
     @app.context_processor
     def inject_globals():
@@ -377,6 +379,9 @@ def build_new_invoice_customer(form) -> Customer:
         "new_customer_state": form.get("new_customer_state", "").strip(),
         "new_customer_pincode": form.get("new_customer_pincode", "").strip(),
     }
+    if not values["new_customer_name"]:
+        raise ValueError("Customer Name is required for a new customer.")
+
     gstin = form.get("new_customer_gstin", "").strip().upper()
     phone = form.get("new_customer_phone", "").strip()
     email = form.get("new_customer_email", "").strip()
@@ -389,7 +394,7 @@ def build_new_invoice_customer(form) -> Customer:
 
     return Customer(
         company_id=current_user.company_id,
-        customer_name=values["new_customer_name"] or "",
+        customer_name=values["new_customer_name"],
         gstin=gstin,
         phone=phone,
         email=email,
@@ -521,8 +526,8 @@ def update_company_from_form(company: Company):
     signature = save_signature(request.files.get("signature_image"));
     if signature: company.signature_image_path = signature
     if f.get("remove_signature_image") == "1": company.signature_image_path = ""
-    if not company.company_name:
-        raise ValueError("Company name is required.")
+    if not all([company.company_name, company.gstin, company.address, company.city, company.state, company.pin_code]):
+        raise ValueError("Company name, GSTIN, address, city, state and PIN code are required.")
     validate_company(company)
 
 
@@ -789,8 +794,6 @@ def create_invoice():
                 customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first_or_404()
             customer_state = normalize_state_name(customer.state) or normalize_state_name(current_user.company.state)
             supply_code = state_code_from_state(customer_state) or (current_user.company.state_code or "").strip().zfill(2)
-            if supply_code == "00":
-                supply_code = ""
             # Treat the submitted state code as a helper/autofill value only.
             # A stale or manually mistyped code should not block invoice creation;
             # the authoritative code comes from the selected customer state.
@@ -798,7 +801,7 @@ def create_invoice():
             customer.state_code = supply_code
             invoice_date = parse_required_date(request.form.get("invoice_date") or date.today().isoformat(), "Invoice date")
             due_date = parse_required_date(request.form.get("due_date") or invoice_date.isoformat(), "Due date")
-            inv=Invoice(company=current_user.company, customer=customer, created_by_user_id=current_user.id, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=invoice_date, due_date=due_date, place_of_supply=customer_state or "", state_code=supply_code)
+            inv=Invoice(company=current_user.company, customer=customer, created_by_user_id=current_user.id, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=invoice_date, due_date=due_date, place_of_supply=customer_state, state_code=supply_code)
             setattr(inv, "terms", request.form.get("terms", "").strip())
             hsn_values=request.form.getlist("hsn_sac[]"); qty_values=request.form.getlist("quantity[]"); price_values=request.form.getlist("unit_price[]"); gst_values=request.form.getlist("gst_percentage[]")
             for idx,name in enumerate(request.form.getlist("item_name[]")):
