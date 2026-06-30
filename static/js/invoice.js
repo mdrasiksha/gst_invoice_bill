@@ -97,16 +97,11 @@
       const data=await response.json().catch(()=>({ok:false,message:'Unable to generate invoice.'}));
       if(response.status===403){
         const modalEl=document.getElementById('upgradeModal');
-        const messageEl=document.getElementById('upgradeModalMessage');
-        const benefitEl=document.getElementById('upgradeModalBenefit');
-        if(messageEl) messageEl.textContent=data.message || 'Monthly invoice limit reached. Please upgrade your plan to continue creating invoices.';
-        if(benefitEl) benefitEl.textContent=data.benefit || '';
         if(modalEl && window.bootstrap){new bootstrap.Modal(modalEl).show();}
         else {alert(data.message || 'Monthly invoice limit reached. Please upgrade your plan to continue creating invoices.');}
         return;
       }
       if(!response.ok || !data.ok) throw new Error(data.message || 'Unable to generate invoice.');
-      if(form.dataset.guest==='1' && window.localStorage){localStorage.setItem('gstsmart_guest_invoice_count', String(data.guest_count || Number(form.dataset.guestCount || 0) + 1));}
       window.location.href=data.download_url;
     }catch(err){
       if(alertBox){alertBox.textContent=err.message; alertBox.className='alert alert-danger';}
