@@ -150,6 +150,7 @@ class Invoice(db.Model):
     igst = db.Column(db.Float, default=0)
     round_off = db.Column(db.Float, default=0)
     grand_total = db.Column(db.Float, default=0)
+    terms = db.Column(db.Text, default="")
     pdf_path = db.Column(db.String(300), default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     company = db.relationship("Company", back_populates="invoices")
