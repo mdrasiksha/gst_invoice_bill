@@ -82,7 +82,7 @@ class PDFGenerator:
             scale = min(box_width / width, box_height / height)
             return Image(str(path_value), width=width * scale, height=height * scale)
 
-        doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=9*mm, leftMargin=9*mm, topMargin=9*mm, bottomMargin=12*mm)
+        doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=9*mm, leftMargin=9*mm, topMargin=9*mm, bottomMargin=12*mm, pageCompression=0)
         story = []
         logo = None
         logo_path = image_path(invoice.company.logo_path)
@@ -219,11 +219,21 @@ class PDFGenerator:
             sig = Table([[signature_parts]], colWidths=[70*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "BOTTOM"), ("ALIGN", (0,0), (-1,-1), "CENTER"), ("FONTSIZE", (0,0), (-1,-1), 8), ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4)])
             story.append(KeepTogether(Table([["", sig]], colWidths=[112*mm, 70*mm], style=[("VALIGN", (0,0), (-1,-1), "TOP")])))
         def page_footer(canvas: Canvas, _doc):
-            canvas.saveState(); canvas.setFont(font, 8); canvas.setFillColor(colors.HexColor("#64748B")); canvas.drawString(12*mm, 8*mm, f"GST Smart · {invoice.company.company_name} · {invoice.invoice_number}"); canvas.drawRightString(198*mm, 8*mm, f"Page {canvas.getPageNumber()}"); canvas.restoreState()
+            canvas.saveState()
+            watermark = getattr(invoice, "watermark_text", "") if getattr(invoice, "is_guest_invoice", False) else ""
+            if watermark:
+                canvas.setFont(bold, 18)
+                canvas.setFillColor(colors.Color(0.07, 0.24, 0.41, alpha=0.14))
+                canvas.translate(105*mm, 145*mm)
+                canvas.rotate(35)
+                canvas.drawCentredString(0, 0, watermark)
+                canvas.rotate(-35)
+                canvas.translate(-105*mm, -145*mm)
+            canvas.setFont(font, 8); canvas.setFillColor(colors.HexColor("#64748B")); canvas.drawString(12*mm, 8*mm, f"GST Smart · {invoice.company.company_name} · {invoice.invoice_number}"); canvas.drawRightString(198*mm, 8*mm, f"Page {canvas.getPageNumber()}"); canvas.restoreState()
         doc.build(story, onFirstPage=page_footer, onLaterPages=page_footer)
 
     def _generate_minimal_pdf(self, invoice: Invoice, path: Path) -> None:
-        lines = ["TAX INVOICE", f"Invoice: {invoice.invoice_number}  Date: {invoice.invoice_date:%d-%m-%Y}", f"Seller: {invoice.company.seller_name}" + (f" GSTIN: {invoice.company.gstin}" if invoice.company.gstin else ""), f"Buyer: {invoice.customer.customer_name}" + (f" GSTIN: {invoice.customer.gstin}" if invoice.customer.gstin else ""), "Items:"]
+        lines = ([getattr(invoice, "watermark_text", "")] if getattr(invoice, "is_guest_invoice", False) and getattr(invoice, "watermark_text", "") else []) + ["TAX INVOICE", f"Invoice: {invoice.invoice_number}  Date: {invoice.invoice_date:%d-%m-%Y}", f"Seller: {invoice.company.seller_name}" + (f" GSTIN: {invoice.company.gstin}" if invoice.company.gstin else ""), f"Buyer: {invoice.customer.customer_name}" + (f" GSTIN: {invoice.customer.gstin}" if invoice.customer.gstin else ""), "Items:"]
         for item in invoice.items:
             lines.append(f"{item.item_name} HSN:{item.hsn_sac or ''} Qty:{item.quantity:g} Total:{item.total_amount:.2f}")
         lines += [f"Taxable: INR {invoice.taxable_amount:.2f}", f"CGST: INR {invoice.cgst:.2f} SGST: INR {invoice.sgst:.2f} IGST: INR {invoice.igst:.2f}", f"Grand Total: INR {invoice.grand_total:.2f}", amount_to_words(invoice.grand_total), getattr(invoice.company, "authorized_signature_name", "") or ""]
