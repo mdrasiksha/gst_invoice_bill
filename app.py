@@ -699,8 +699,7 @@ def pricing():
 
 @app.route("/")
 def landing():
-    free_invoice_limit = PLAN_MONTHLY_INVOICE_LIMITS["free"]
-    return render_template("landing.html", free_invoice_limit=free_invoice_limit)
+    return render_template("landing.html")
 
 
 @app.route("/dashboard")
