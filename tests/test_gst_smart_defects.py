@@ -453,18 +453,3 @@ def test_logged_in_pdf_has_no_guest_watermark_and_invoice_still_saves(client):
         inv = Invoice.query.filter_by(invoice_number="INV-NO-WATERMARK").one()
         assert inv.customer.customer_name == "Walk In Buyer"
         assert inv.created_by_user.email == "user@example.com"
-
-
-def test_sample_invoice_is_public_and_does_not_persist_data(client):
-    rv = client.get('/sample-invoice')
-    assert rv.status_code == 200
-    assert b'Sample GST Invoice | GST Smart' in rv.data
-    assert b'Rajesh engineering' in rv.data
-    assert b'INV-2026-0001' in rv.data
-    assert b'Anil kumar' in rv.data
-    assert b'welding coil' in rv.data
-    assert b'PCB board' in rv.data
-    assert b'Create Your Free Invoice' in rv.data
-    with app.app_context():
-        assert Invoice.query.count() == 0
-        assert Customer.query.filter_by(customer_name='Anil kumar').count() == 0

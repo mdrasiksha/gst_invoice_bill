@@ -43,7 +43,7 @@ GUEST_INVOICE_LIMIT = 3
 GUEST_LIMIT_MESSAGE = "You've created 3 free invoices. Create a free GST Smart account to continue."
 GUEST_UPGRADE_BENEFIT = "Create a free account to save invoices, manage customers, add your logo, and download unlimited invoices within your plan."
 GUEST_WATERMARK = "Created with GST Smart - Free Invoice Generator"
-PUBLIC_ENDPOINTS = {"landing", "about", "contact", "privacy_policy", "terms_and_conditions", "pricing", "robots_txt", "sitemap_xml", "favicon_asset", "create_invoice", "guest_download_pdf", "sample_invoice"}
+PUBLIC_ENDPOINTS = {"landing", "about", "contact", "privacy_policy", "terms_and_conditions", "pricing", "robots_txt", "sitemap_xml", "favicon_asset", "create_invoice", "guest_download_pdf"}
 
 
 def configure_logging(app: Flask) -> None:
@@ -633,57 +633,6 @@ def invoice_view_context(inv: Invoice) -> dict:
     }
 
 
-
-def sample_invoice_context() -> dict:
-    """Build hardcoded, transient demo invoice data without touching persistence."""
-    company = Company(
-        company_name="Rajesh engineering",
-        gstin="29ABCDE1234F225",
-        address="No.112, 2nd cross, Industrial estate, Gandhi Nagar, Bangalore, Karnataka, 5789456",
-        city="Bangalore",
-        state="Karnataka",
-        pin_code="5789456",
-        phone="9432512345",
-        email="rajesh@gmail.com",
-        bank_name="SBI",
-        account_number="8794578954",
-        ifsc="SB547954",
-        upi_id="4578125@hdfc",
-        authorized_signature_name="Rajesh Kumar",
-    )
-    customer = Customer(
-        customer_name="Anil kumar",
-        gstin="Unregistered",
-        address="113. 3rd cross, Ambattur industrial estate, Ambattur, Chennai, Tamilnadu, 600112",
-        phone="978457894578",
-        email="",
-        state="Karnataka",
-        state_code="29",
-    )
-    invoice = Invoice(
-        company=company,
-        customer=customer,
-        invoice_number="INV-2026-0001",
-        invoice_date=date(2026, 6, 19),
-        due_date=date(2026, 7, 4),
-        place_of_supply="Karnataka",
-        state_code="29",
-        taxable_amount=14600,
-        cgst=1314,
-        sgst=1314,
-        igst=0,
-        round_off=0,
-        grand_total=17228,
-        terms="1. Payment is due on or before the due date.\n2. Goods/services once sold will not be taken back unless agreed in writing.\n3. Subject to local jurisdiction.",
-    )
-    invoice.items = [
-        InvoiceItem(item_name="welding coil", hsn_sac="-", quantity=5, unit_price=1800, gst_percentage=18, taxable_value=9000, gst_amount=1620, total_amount=10620),
-        InvoiceItem(item_name="PCB board", hsn_sac="-", quantity=2, unit_price=2800, gst_percentage=18, taxable_value=5600, gst_amount=1008, total_amount=6608),
-    ]
-    context = invoice_view_context(invoice)
-    context.update({"sample_invoice": True, "sample_amount_words": "Rupees Seventeen Thousand Two Hundred Twenty Eight Only"})
-    return context
-
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -789,11 +738,6 @@ def landing():
     free_invoice_limit = PLAN_MONTHLY_INVOICE_LIMITS["free"]
     return render_template("landing.html", free_invoice_limit=free_invoice_limit)
 
-
-
-@app.route("/sample-invoice")
-def sample_invoice():
-    return render_template("invoice_preview.html", **sample_invoice_context())
 
 @app.route("/dashboard")
 @login_required
