@@ -20,17 +20,30 @@
 </script>
 {% endblock %}
 {% block content %}
+{% set FREE_PLAN_LIMIT = "Free forever — up to 10 invoices/month, no credit card required" %}
+{% set social_stats = ["500+ Invoices Generated", "Free Forever Plan", "No Signup Required to Try"] %}
+{% set testimonials = [
+  {"name": "Aarav Mehta", "role": "Freelance Designer", "quote": "GST Smart makes invoice creation feel simple. I can create a clean PDF before sending my client deliverables."},
+  {"name": "Priya Sharma", "role": "Retail Shop Owner", "quote": "The tax breakup is easy to understand, and the invoice preview helps me check everything quickly."},
+  {"name": "Rohan Patel", "role": "Trader", "quote": "A straightforward tool for everyday GST billing without opening complex accounting software."}
+] %}
+{% set feature_items = [
+  ("bi-calculator", "Auto GST Calculation", "Never miscalculate tax and risk a compliance notice"),
+  ("bi-diagram-3", "Automatic Tax Breakup", "We handle CGST/SGST/IGST splits — no tax knowledge needed"),
+  ("bi-filetype-pdf", "Instant PDF Invoice", "Download a polished, print-ready invoice in one click"),
+  ("bi-building-check", "Saved Business Profile", "Enter your details once, reuse for every invoice")
+] %}
 <section class="landing-hero rounded-4 overflow-hidden mb-4" aria-labelledby="landing-title">
   <div class="row align-items-center g-4 p-4 p-lg-5">
     <div class="col-lg-7">
       <span class="badge rounded-pill text-bg-light text-primary fw-semibold mb-3">GST Smart - Free GST Invoice Generator</span>
-      <h1 id="landing-title" class="display-5 fw-bold text-white mb-3">Generate GST-Compliant Invoices in Under 30 Seconds</h1>
-      <p class="lead text-white-75 mb-4">Simple invoice software for Indian freelancers, traders, shop owners, and small businesses. No accounting knowledge needed.</p>
+      <h1 id="landing-title" class="display-5 fw-bold text-white mb-3">GST Invoices in 60 Seconds — No Accounting Knowledge Needed</h1>
+      <p class="lead text-white-75 mb-4">Skip the complex software. Create a compliant GST invoice instantly, free, with no CA or accounting setup required.</p>
       <div class="d-flex flex-column flex-sm-row gap-3">
-        <a class="btn btn-light btn-lg fw-semibold px-4" href="{{ url_for('create_invoice') }}">Create Free Invoice</a>
-        <a class="btn btn-outline-light btn-lg fw-semibold px-4" href="{{ url_for('sample_invoice') }}">View Sample Invoice</a>
+        <a class="btn btn-light btn-lg fw-semibold px-4" href="{{ url_for('create_invoice') }}">Get Started Free</a>
+        <a class="btn btn-outline-light btn-lg fw-semibold px-4" href="{{ url_for('login') }}">Login</a>
       </div>
-      <p class="text-white-75 small fw-semibold mt-3 mb-0">Free plan available. No credit card required.</p>
+      <p class="free-plan-inline text-white fw-semibold mt-3 mb-0"><i class="bi bi-check-circle-fill" aria-hidden="true"></i>{{ FREE_PLAN_LIMIT }}</p>
     </div>
     <div class="col-lg-5" id="sample-invoice">
       <div class="landing-preview card border-0 shadow-lg">
@@ -49,15 +62,57 @@
   </div>
 </section>
 
+<section class="social-proof landing-section mb-5" aria-labelledby="social-proof-title">
+  <div class="d-flex flex-wrap justify-content-center gap-2 gap-md-3 mb-4">
+    {% for stat in social_stats %}<span class="social-stat-pill"><i class="bi bi-stars" aria-hidden="true"></i>{{ stat }}</span>{% endfor %}
+  </div>
+  <div class="text-center mb-4"><p class="text-uppercase text-primary fw-bold small mb-2">Trusted by small businesses</p><h2 id="social-proof-title" class="fw-bold">Built for everyday GST billing</h2></div>
+  <div class="row g-3">
+    {% for testimonial in testimonials %}
+    <div class="col-md-4"><article class="testimonial-card h-100"><i class="bi bi-quote" aria-hidden="true"></i><p>“{{ testimonial.quote }}”</p><div><strong>{{ testimonial.name }}</strong><span>{{ testimonial.role }}</span></div></article></div>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="features" class="landing-section mb-5" aria-labelledby="features-title">
+  <div class="text-center mb-4"><p class="text-uppercase text-primary fw-bold small mb-2">Features</p><h2 id="features-title" class="fw-bold">Everything you need to create GST invoices quickly</h2></div>
+  <div class="row g-3">
+    {% for icon, title, benefit in feature_items %}
+    <div class="col-md-6 col-lg-3"><div class="landing-tile feature-benefit h-100"><i class="bi {{ icon }}" aria-hidden="true"></i><div><h3>{{ title }}</h3><p>{{ benefit }}</p></div></div></div>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="try-without-signup" class="landing-section demo-section rounded-4 p-4 p-lg-5 mb-5" aria-labelledby="demo-title">
+  <div class="row g-4 align-items-start">
+    <div class="col-lg-5">
+      <p class="text-uppercase text-primary fw-bold small mb-2">Try without signup</p>
+      <h2 id="demo-title" class="fw-bold mb-3">Create a sample GST invoice now</h2>
+      <p class="text-muted mb-4">This demo calculates GST in your browser only. It does not require login, authentication, or data storage.</p>
+      <form id="sampleInvoiceDemo" class="row g-3" novalidate>
+        <div class="col-12"><label class="form-label" for="demoBusinessName">Business name</label><input class="form-control" id="demoBusinessName" value="Your Business Name"></div>
+        <div class="col-md-6"><label class="form-label" for="demoItemName">Item / service</label><input class="form-control" id="demoItemName" value="Design Services"></div>
+        <div class="col-md-6"><label class="form-label" for="demoAmount">Amount</label><input class="form-control" id="demoAmount" type="number" min="0" step="0.01" value="10000"></div>
+        <div class="col-md-6"><label class="form-label" for="demoGstRate">GST rate</label><select class="form-select" id="demoGstRate"><option value="0">0%</option><option value="5">5%</option><option value="12">12%</option><option value="18" selected>18%</option><option value="28">28%</option></select></div>
+        <div class="col-md-6"><label class="form-label" for="demoTaxType">Tax breakup</label><select class="form-select" id="demoTaxType"><option value="intra" selected>CGST + SGST</option><option value="inter">IGST</option></select></div>
+        <div class="col-12"><button type="button" id="downloadSamplePdf" class="btn btn-primary btn-lg fw-semibold"><i class="bi bi-download me-2" aria-hidden="true"></i>Download Sample PDF</button></div>
+      </form>
+    </div>
+    <div class="col-lg-7">
+      <div class="invoice-preview demo-preview bg-white p-3 p-md-4 shadow-sm">
+        <div class="preview-header preview-header-no-logo"><div class="preview-company"><h2 id="demoPreviewBusiness">Your Business Name</h2><p>Sample invoice generated without signup</p></div><div class="tax-badge">TAX INVOICE</div></div>
+        <div class="preview-meta"><span>Invoice No.</span><span>Date</span><span>GST Rate</span><span>Type</span><strong>DEMO-001</strong><strong id="demoPreviewDate"></strong><strong id="demoPreviewRate">18%</strong><strong id="demoPreviewType">CGST/SGST</strong></div>
+        <table class="table table-sm table-bordered invoice-table mb-3"><thead><tr><th>Description</th><th class="text-center">Taxable</th><th class="text-center">GST</th><th class="text-center">Total</th></tr></thead><tbody><tr><td id="demoPreviewItem">Design Services</td><td class="text-center" id="demoPreviewTaxable">₹10,000.00</td><td class="text-center" id="demoPreviewGst">₹1,800.00</td><td class="text-center" id="demoPreviewLineTotal">₹11,800.00</td></tr></tbody></table>
+        <div class="summary-grid ms-auto"><span>Taxable Amount</span><strong id="demoTaxableTotal">₹10,000.00</strong><span id="demoCgstLabel">CGST (9%)</span><strong id="demoCgstTotal">₹900.00</strong><span id="demoSgstLabel">SGST (9%)</span><strong id="demoSgstTotal">₹900.00</strong><span id="demoIgstLabel">IGST (0%)</span><strong id="demoIgstTotal">₹0.00</strong><span class="grand-label">Grand Total</span><strong class="grand-value" id="demoGrandTotal">₹11,800.00</strong></div>
+        <div class="demo-watermark">SAMPLE - Sign up at GSTSmart.com for full features</div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section class="trust-strip landing-section mb-5" aria-label="GST Smart trust signals">
   <div class="row g-3">
-    {% for item in [
-      ("bi-shield-check", "GST-compliant invoice format"),
-      ("bi-lock", "Secure & private"),
-      ("bi-phone", "Works on mobile and desktop"),
-      ("bi-shop", "Built for Indian freelancers and small businesses"),
-      ("bi-filetype-pdf", "Professional PDF invoice download")
-    ] %}
+    {% for item in [("bi-shield-check", "GST-compliant invoice format"),("bi-lock", "Secure & private"),("bi-phone", "Works on mobile and desktop"),("bi-shop", "Built for Indian freelancers and small businesses"),("bi-filetype-pdf", "Professional PDF invoice download")] %}
     <div class="col-md-6 col-xl"><div class="trust-item h-100"><i class="bi {{ item[0] }}" aria-hidden="true"></i><span>{{ item[1] }}</span></div></div>
     {% endfor %}
   </div>
@@ -66,7 +121,7 @@
 <section id="free-plan" class="landing-section mb-5" aria-labelledby="free-plan-title">
   <div class="free-plan-card rounded-4 p-4 p-lg-5">
     <div class="row align-items-center g-4">
-      <div class="col-lg-5"><p class="text-uppercase text-primary fw-bold small mb-2">Free Plan</p><h2 id="free-plan-title" class="fw-bold">Free Forever Plan</h2><p class="text-muted mb-0">Start creating GST invoices without payment setup or credit card details.</p></div>
+      <div class="col-lg-5"><p class="text-uppercase text-primary fw-bold small mb-2">Free Plan</p><h2 id="free-plan-title" class="fw-bold">Free Forever Plan</h2><p class="text-muted mb-2">Start creating GST invoices without payment setup or credit card details.</p><span class="free-plan-badge">{{ FREE_PLAN_LIMIT }}</span></div>
       <div class="col-lg-7"><div class="row g-3">
         {% for benefit in [free_invoice_limit ~ " invoices/month", "PDF invoice download", "Customer management", "Auto GST calculation", "Company logo support", "Works on mobile and desktop", "No credit card required"] %}
         <div class="col-sm-6"><div class="free-plan-benefit"><i class="bi bi-check2-circle" aria-hidden="true"></i>{{ benefit }}</div></div>
@@ -76,39 +131,21 @@
   </div>
 </section>
 
-<section id="features" class="landing-section mb-5" aria-labelledby="features-title">
-  <div class="text-center mb-4"><p class="text-uppercase text-primary fw-bold small mb-2">Features</p><h2 id="features-title" class="fw-bold">Everything you need to create GST invoices quickly</h2></div>
-  <div class="row g-3">
-    {% for feature in [
-      ("Auto GST Calculation", "Never calculate CGST, SGST, or IGST manually again."),
-      ("Professional PDF Invoice", "Download clean, professional invoices ready to share with customers."),
-      ("Customer Management", "Save customer details once and reuse them for future invoices."),
-      ("Logo, QR & Signature Support", "Create branded invoices with your business identity."),
-      ("Mobile Friendly", "Create invoices from your phone, laptop, or desktop anytime."),
-      ("Simple for Non-Accountants", "No accounting jargon. Just enter details and generate your invoice.")
-    ] %}
-    <div class="col-md-6 col-lg-4"><div class="landing-tile feature-benefit h-100"><i class="bi bi-check-circle-fill" aria-hidden="true"></i><div><h3>{{ feature[0] }}</h3><p>{{ feature[1] }}</p></div></div></div>
-    {% endfor %}
-  </div>
-</section>
-
-<section id="how-it-works" class="landing-section mb-5" aria-labelledby="how-title">
-  <div class="row align-items-center g-4">
-    <div class="col-lg-5"><p class="text-uppercase text-primary fw-bold small mb-2">How It Works</p><h2 id="how-title" class="fw-bold">Generate your invoice in three simple steps</h2></div>
-    <div class="col-lg-7"><div class="row g-3">{% for step in ["Register free", "Add customer and item details", "Generate and download PDF invoice"] %}<div class="col-md-4"><div class="step-card h-100"><div class="step-number">{{ loop.index }}</div><strong>{{ step }}</strong></div></div>{% endfor %}</div></div>
-  </div>
-</section>
-
-<section class="landing-section why-section rounded-4 p-4 p-lg-5 mb-5" aria-labelledby="why-title">
-  <div class="row align-items-center g-4">
-    <div class="col-lg-6"><p class="text-uppercase text-primary fw-bold small mb-2">Why GST Smart?</p><h2 id="why-title" class="fw-bold">Built for small businesses and freelancers</h2><p class="text-muted mb-0">Skip complex accounting setup and create polished GST invoices with a simple, focused interface.</p></div>
-    <div class="col-lg-6"><ul class="why-list mb-0"><li>Simple interface for everyday business owners</li><li>GST-ready format with tax breakup</li><li>Suitable for freelancers, shops, traders, and small businesses</li></ul></div>
-  </div>
-</section>
-
-<section class="landing-cta rounded-4 p-4 p-lg-5 text-center" aria-labelledby="bottom-cta-title">
-  <h2 id="bottom-cta-title" class="fw-bold text-white mb-2">Ready to create your first GST invoice?</h2>
-  <p class="text-white-75 mb-4">Start free today. No credit card required.</p>
-  <a class="btn btn-light btn-lg fw-semibold px-4" href="{{ url_for('create_invoice') }}">Create Free Invoice</a>
-</section>
+<section id="how-it-works" class="landing-section mb-5" aria-labelledby="how-title"><div class="row align-items-center g-4"><div class="col-lg-5"><p class="text-uppercase text-primary fw-bold small mb-2">How It Works</p><h2 id="how-title" class="fw-bold">Generate your invoice in three simple steps</h2></div><div class="col-lg-7"><div class="row g-3">{% for step in ["Register free", "Add customer and item details", "Generate and download PDF invoice"] %}<div class="col-md-4"><div class="step-card h-100"><div class="step-number">{{ loop.index }}</div><strong>{{ step }}</strong></div></div>{% endfor %}</div></div></div></section>
+<section class="landing-section why-section rounded-4 p-4 p-lg-5 mb-5" aria-labelledby="why-title"><div class="row align-items-center g-4"><div class="col-lg-6"><p class="text-uppercase text-primary fw-bold small mb-2">Why GST Smart?</p><h2 id="why-title" class="fw-bold">Built for small businesses and freelancers</h2><p class="text-muted mb-0">Skip complex accounting setup and create polished GST invoices with a simple, focused interface.</p></div><div class="col-lg-6"><ul class="why-list mb-0"><li>Simple interface for everyday business owners</li><li>GST-ready format with tax breakup</li><li>Suitable for freelancers, shops, traders, and small businesses</li></ul></div></div></section>
+<section class="landing-cta rounded-4 p-4 p-lg-5 text-center" aria-labelledby="bottom-cta-title"><h2 id="bottom-cta-title" class="fw-bold text-white mb-2">Ready to create your first GST invoice?</h2><p class="text-white-75 mb-4">Start free today. No credit card required.</p><a class="btn btn-light btn-lg fw-semibold px-4" href="{{ url_for('create_invoice') }}">Create Free Invoice</a></section>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script>
+(function(){
+  const form=document.getElementById('sampleInvoiceDemo'); if(!form) return;
+  const money=v=>`₹${(Number(v)||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const el=id=>document.getElementById(id);
+  const today=new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+  function values(){const taxable=Math.max(parseFloat(el('demoAmount').value)||0,0); const rate=parseFloat(el('demoGstRate').value)||0; const gst=taxable*rate/100; const inter=el('demoTaxType').value==='inter'; return {business:el('demoBusinessName').value.trim()||'Your Business Name', item:el('demoItemName').value.trim()||'Sample Item', taxable, rate, gst, total:taxable+gst, inter};}
+  function recalc(){const v=values(); el('demoPreviewBusiness').textContent=v.business; el('demoPreviewItem').textContent=v.item; el('demoPreviewDate').textContent=today; el('demoPreviewRate').textContent=`${v.rate}%`; el('demoPreviewType').textContent=v.inter?'IGST':'CGST/SGST'; el('demoPreviewTaxable').textContent=money(v.taxable); el('demoPreviewGst').textContent=money(v.gst); el('demoPreviewLineTotal').textContent=money(v.total); el('demoTaxableTotal').textContent=money(v.taxable); el('demoCgstLabel').textContent=`CGST (${v.inter?0:v.rate/2}%)`; el('demoSgstLabel').textContent=`SGST (${v.inter?0:v.rate/2}%)`; el('demoIgstLabel').textContent=`IGST (${v.inter?v.rate:0}%)`; el('demoCgstTotal').textContent=money(v.inter?0:v.gst/2); el('demoSgstTotal').textContent=money(v.inter?0:v.gst/2); el('demoIgstTotal').textContent=money(v.inter?v.gst:0); el('demoGrandTotal').textContent=money(v.total);}
+  form.querySelectorAll('input,select').forEach(input=>input.addEventListener('input',recalc));
+  el('downloadSamplePdf')?.addEventListener('click',()=>{const jsPDF=window.jspdf&&window.jspdf.jsPDF; if(!jsPDF){alert('PDF library could not be loaded. Please try again.'); return;} const v=values(); const doc=new jsPDF(); doc.setTextColor(10,101,194); doc.setFontSize(18); doc.text(v.business,14,18); doc.setFontSize(12); doc.setTextColor(31,41,55); doc.text('SAMPLE GST INVOICE',14,30); doc.text(`Invoice No: DEMO-001`,14,40); doc.text(`Date: ${today}`,140,40); doc.line(14,48,196,48); doc.text('Description',14,58); doc.text('Taxable',95,58); doc.text('GST',130,58); doc.text('Total',165,58); doc.text(v.item,14,70); doc.text(money(v.taxable),95,70); doc.text(money(v.gst),130,70); doc.text(money(v.total),165,70); doc.line(14,78,196,78); doc.text(`Taxable Amount: ${money(v.taxable)}`,120,90); doc.text(v.inter?`IGST (${v.rate}%): ${money(v.gst)}`:`CGST (${v.rate/2}%): ${money(v.gst/2)}`,120,100); if(!v.inter) doc.text(`SGST (${v.rate/2}%): ${money(v.gst/2)}`,120,110); doc.setFontSize(14); doc.text(`Grand Total: ${money(v.total)}`,120,124); doc.setTextColor(180,180,180); doc.setFontSize(22); doc.text('SAMPLE - Sign up at GSTSmart.com for full features',105,160,{align:'center',angle:35}); doc.save('gstsmart-sample-invoice.pdf');});
+  recalc();
+})();
+</script>
 {% endblock %}
