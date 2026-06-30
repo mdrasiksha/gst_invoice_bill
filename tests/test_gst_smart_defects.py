@@ -416,3 +416,40 @@ def test_description_suggestion_dropdown_shows_only_descriptions_and_caps_at_fiv
     assert "set('hsn_sac[]',suggestion.hsn_sac)" in js
     assert "set('unit_price[]',suggestion.unit_price)" in js
     assert "set('gst_percentage[]',suggestion.gst_percentage)" in js
+
+def test_guest_can_create_first_three_invoices_and_is_blocked_after_limit(client):
+    token = csrf(client)
+    for idx in range(1, 4):
+        rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**invoice_post_data(invoice_number=f"GUEST-{idx}"), "csrf_token": token})
+        assert rv.status_code == 200
+        assert rv.json["ok"] is True
+        assert rv.json["guest_count"] == idx
+        assert rv.json["download_url"] == "/guest-invoice/pdf"
+    blocked = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**invoice_post_data(invoice_number="GUEST-4"), "csrf_token": token})
+    assert blocked.status_code == 403
+    assert blocked.json["guest_limit_reached"] is True
+    assert blocked.json["message"] == "You've created 3 free invoices. Create a free GST Smart account to continue."
+
+
+def test_guest_invoice_has_watermark_and_does_not_pollute_saved_history(client):
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**invoice_post_data(invoice_number="GUEST-WATERMARK"), "csrf_token": csrf(client)})
+    assert rv.status_code == 200
+    pdf_response = client.get(rv.json["download_url"])
+    assert pdf_response.status_code == 200
+    assert b"Created with GST Smart - Free Invoice Generator" in pdf_response.data
+    with app.app_context():
+        assert Invoice.query.filter_by(invoice_number="GUEST-WATERMARK").first() is None
+        assert Customer.query.filter_by(customer_name="Walk In Buyer").first() is None
+
+
+def test_logged_in_pdf_has_no_guest_watermark_and_invoice_still_saves(client):
+    login(client)
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**invoice_post_data(invoice_number="INV-NO-WATERMARK"), "csrf_token": csrf(client)})
+    assert rv.status_code == 200
+    pdf_response = client.get(rv.json["download_url"])
+    assert pdf_response.status_code == 200
+    assert b"Created with GST Smart - Free Invoice Generator" not in pdf_response.data
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-NO-WATERMARK").one()
+        assert inv.customer.customer_name == "Walk In Buyer"
+        assert inv.created_by_user.email == "user@example.com"
