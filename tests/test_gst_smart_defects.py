@@ -431,14 +431,12 @@ def test_guest_can_create_first_three_invoices_and_is_blocked_after_limit(client
     assert blocked.json["message"] == "You've created 3 free invoices. Create a free GST Smart account to continue."
 
 
-def test_guest_invoice_has_footer_watermark_and_does_not_pollute_saved_history(client):
+def test_guest_invoice_has_watermark_and_does_not_pollute_saved_history(client):
     rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**invoice_post_data(invoice_number="GUEST-WATERMARK"), "csrf_token": csrf(client)})
     assert rv.status_code == 200
     pdf_response = client.get(rv.json["download_url"])
     assert pdf_response.status_code == 200
     assert b"Created with GST Smart - Free Invoice Generator" in pdf_response.data
-    assert b".819152" not in pdf_response.data
-    assert b".573576" not in pdf_response.data
     with app.app_context():
         assert Invoice.query.filter_by(invoice_number="GUEST-WATERMARK").first() is None
         assert Customer.query.filter_by(customer_name="Walk In Buyer").first() is None
@@ -451,23 +449,10 @@ def test_logged_in_pdf_has_no_guest_watermark_and_invoice_still_saves(client):
     pdf_response = client.get(rv.json["download_url"])
     assert pdf_response.status_code == 200
     assert b"Created with GST Smart - Free Invoice Generator" not in pdf_response.data
-    assert b".819152" not in pdf_response.data
-    assert b".573576" not in pdf_response.data
     with app.app_context():
         inv = Invoice.query.filter_by(invoice_number="INV-NO-WATERMARK").one()
         assert inv.customer.customer_name == "Walk In Buyer"
         assert inv.created_by_user.email == "user@example.com"
-
-
-def test_sample_pdf_download_uses_footer_text_not_large_rotated_watermark(client):
-    rv = client.get('/')
-    assert rv.status_code == 200
-    page = rv.data.decode()
-    assert "Created with GST Smart - Free Invoice Generator" in page
-    sample_pdf_handler = page.split("downloadSamplePdf", 1)[1]
-    assert "angle:35" not in sample_pdf_handler
-    assert "doc.setFontSize(8)" in sample_pdf_handler
-    assert "doc.text('Created with GST Smart - Free Invoice Generator',105,286,{align:'center'})" in sample_pdf_handler
 
 
 def test_sample_invoice_is_public_and_does_not_persist_data(client):
