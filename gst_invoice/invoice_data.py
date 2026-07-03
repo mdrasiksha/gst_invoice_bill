@@ -30,13 +30,25 @@ def build_invoice_data(invoice: Invoice) -> dict[str, Any]:
     same_state = bool(supplier_state_code and customer_state_code and supplier_state_code == customer_state_code)
     tax_type = "CGST_SGST" if same_state else "IGST"
     max_gst_rate = max((float(item.gst_percentage or 0) for item in items), default=0.0)
+    taxable_amount = float(invoice.taxable_amount or 0)
+    tax_rate = max_gst_rate
+    cgst_amount = float(invoice.cgst or 0)
+    sgst_amount = float(invoice.sgst or 0)
+    igst_amount = float(invoice.igst or 0)
+    total_tax_amount = float(cgst_amount + sgst_amount + igst_amount)
+    grand_total = float(invoice.grand_total or 0)
     totals = {
-        "taxable_amount": float(invoice.taxable_amount or 0),
-        "cgst": float(invoice.cgst or 0),
-        "sgst": float(invoice.sgst or 0),
-        "igst": float(invoice.igst or 0),
+        "taxable_amount": taxable_amount,
+        "tax_rate": tax_rate,
+        "cgst": cgst_amount,
+        "sgst": sgst_amount,
+        "igst": igst_amount,
+        "cgst_amount": cgst_amount,
+        "sgst_amount": sgst_amount,
+        "igst_amount": igst_amount,
+        "total_tax_amount": total_tax_amount,
         "round_off": float(invoice.round_off or 0),
-        "grand_total": float(invoice.grand_total or 0),
+        "grand_total": grand_total,
         "max_gst_rate": max_gst_rate,
     }
     data = {
@@ -52,6 +64,13 @@ def build_invoice_data(invoice: Invoice) -> dict[str, Any]:
         "customer_state_code": customer_state_code,
         "same_state": same_state,
         "tax_type": tax_type,
+        "taxable_amount": taxable_amount,
+        "tax_rate": tax_rate,
+        "cgst_amount": cgst_amount,
+        "sgst_amount": sgst_amount,
+        "igst_amount": igst_amount,
+        "total_tax_amount": total_tax_amount,
+        "grand_total": grand_total,
     }
     logger.info(
         "Finalized invoice tax breakdown",
@@ -61,9 +80,13 @@ def build_invoice_data(invoice: Invoice) -> dict[str, Any]:
             "supplier_state": supplier_state,
             "customer_state": customer_state,
             "tax_type": tax_type,
-            "cgst_amount": totals["cgst"],
-            "sgst_amount": totals["sgst"],
-            "igst_amount": totals["igst"],
+            "taxable_amount": taxable_amount,
+            "tax_rate": tax_rate,
+            "cgst_amount": cgst_amount,
+            "sgst_amount": sgst_amount,
+            "igst_amount": igst_amount,
+            "total_tax_amount": total_tax_amount,
+            "grand_total": grand_total,
         },
     )
     return data

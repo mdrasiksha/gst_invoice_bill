@@ -492,6 +492,11 @@ def test_same_state_preview_and_pdf_use_same_cgst_sgst_tax_data(client, monkeypa
     assert preview_data["totals"]["igst"] == 0.0
     assert captured[-1]["tax_type"] == preview_data["tax_type"]
     assert captured[-1]["totals"] == preview_data["totals"]
+    for key in ["taxable_amount", "tax_rate", "cgst_amount", "sgst_amount", "igst_amount", "total_tax_amount", "grand_total"]:
+        assert key in captured[-1]
+    assert captured[-1]["cgst_amount"] == 9.0
+    assert captured[-1]["sgst_amount"] == 9.0
+    assert captured[-1]["total_tax_amount"] == 18.0
     assert "Finalized invoice tax breakdown" in caplog.text
 
 
@@ -518,4 +523,34 @@ def test_different_state_preview_and_pdf_use_same_igst_tax_data(client, monkeypa
     assert preview_data["totals"]["igst"] == 18.0
     assert captured[-1]["tax_type"] == preview_data["tax_type"]
     assert captured[-1]["totals"] == preview_data["totals"]
+    for key in ["taxable_amount", "tax_rate", "cgst_amount", "sgst_amount", "igst_amount", "total_tax_amount", "grand_total"]:
+        assert key in captured[-1]
+    assert captured[-1]["igst_amount"] == 18.0
+    assert captured[-1]["total_tax_amount"] == 18.0
+    assert "Finalized invoice tax breakdown" in caplog.text
+
+
+def test_no_gst_preview_and_pdf_use_zero_tax_data(client, monkeypatch, caplog):
+    caplog.set_level("INFO")
+    login(client)
+    import app as app_module
+    captured = []
+
+    def fake_generate(invoice, invoice_data=None):
+        captured.append(invoice_data)
+        return str(Path(app_module.BASE_DIR) / "uploads" / f"{invoice.invoice_number}.pdf")
+
+    monkeypatch.setattr(app_module.pdf, "generate", fake_generate)
+    data = invoice_post_data(invoice_number="INV-PDF-NOGST", new_customer_state="Karnataka", state_code="29", **{"gst_percentage[]": "0.0"})
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**data, "csrf_token": csrf(client)})
+    assert rv.status_code == 200
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-PDF-NOGST").one()
+        preview_data = app_module.invoice_view_context(inv)
+    assert preview_data["totals"]["cgst_amount"] == 0.0
+    assert preview_data["totals"]["sgst_amount"] == 0.0
+    assert preview_data["totals"]["igst_amount"] == 0.0
+    assert preview_data["total_tax_amount"] == 0.0
+    assert captured[-1]["totals"] == preview_data["totals"]
+    assert captured[-1]["total_tax_amount"] == 0.0
     assert "Finalized invoice tax breakdown" in caplog.text
