@@ -104,7 +104,7 @@ class PDFGenerator:
                 )
             except Exception:
                 logger.warning("Skipping invalid company logo", exc_info=True, extra={"company_id": invoice.company_id})
-        company_lines = [f"<b>{esc(invoice.company.company_name)}</b>"] if present(invoice.company.company_name) else []
+        company_lines = [f"<b>{esc(invoice.company.company_name)}</b>"]
         company_detail_lines = []
         if present(invoice.company.gstin):
             company_detail_lines.append(f"GSTIN: {esc(invoice.company.gstin)}")
@@ -119,16 +119,12 @@ class PDFGenerator:
             company_detail_lines.append(" &nbsp; ".join(contact_bits))
         if company_detail_lines:
             company_lines.append(f"<font size='8'>{'<br/>'.join(company_detail_lines)}</font>")
-        company = Paragraph("<br/>".join(company_lines), styles["Company"]) if company_lines else None
+        company = Paragraph("<br/>".join(company_lines), styles["Company"])
         badge = Table([[Paragraph("TAX INVOICE", styles["Badge"])]], colWidths=[38*mm], rowHeights=[12*mm], style=[("BACKGROUND", (0,0), (-1,-1), blue), ("VALIGN", (0,0), (-1,-1), "MIDDLE")])
-        if logo and company:
+        if logo:
             header = Table([[logo, company, badge]], colWidths=[36*mm, 104*mm, 42*mm])
-        elif company:
-            header = Table([[company, badge]], colWidths=[140*mm, 42*mm])
-        elif logo:
-            header = Table([[logo, badge]], colWidths=[36*mm, 146*mm])
         else:
-            header = Table([[badge]], colWidths=[182*mm])
+            header = Table([[company, badge]], colWidths=[140*mm, 42*mm])
         header.setStyle(TableStyle([("BOX", (0,0), (-1,-1), 0.8, border), ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]))
         story += [header, Spacer(1, 4*mm)]
 
@@ -182,8 +178,8 @@ class PDFGenerator:
                 qr_cell = [Image(str(qr_path), width=27*mm, height=27*mm, kind="proportional"), Paragraph("<b>Scan &amp; Pay via UPI</b>", styles["Tiny"])]
             except Exception:
                 logger.warning("Skipping invalid UPI QR image", exc_info=True, extra={"company_id": invoice.company_id})
-        terms_text = esc(getattr(invoice, "terms", ""))
-        terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{terms_text}", styles["Small"]) if terms_text else None
+        terms_text = esc(getattr(invoice, "terms", "") or "1. Goods/services once sold will not be taken back unless agreed in writing.\n2. Subject to local jurisdiction.")
+        terms = Paragraph(f"<b>Terms &amp; Conditions</b><br/>{terms_text}", styles["Small"])
         payment_cells = []
         payment_widths = []
         if bank:
@@ -192,17 +188,13 @@ class PDFGenerator:
         if qr_cell:
             payment_cells.append(qr_cell)
             payment_widths.append(34*mm)
-        if terms:
-            payment_cells.append(terms)
-            payment_widths.append(182*mm - sum(payment_widths))
-        if payment_cells:
-            if not terms:
-                payment_widths = [182*mm / len(payment_cells)] * len(payment_cells)
-            payment_style = [("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "TOP"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("LEFTPADDING", (0,0), (-1,-1), 7), ("RIGHTPADDING", (0,0), (-1,-1), 7), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]
-            if qr_cell:
-                qr_index = payment_cells.index(qr_cell)
-                payment_style.append(("ALIGN", (qr_index,0), (qr_index,0), "CENTER"))
-            story += [Table([payment_cells], colWidths=payment_widths, style=payment_style), Spacer(1, 5*mm)]
+        payment_cells.append(terms)
+        payment_widths.append(182*mm - sum(payment_widths))
+        payment_style = [("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "TOP"), ("BACKGROUND", (0,0), (-1,-1), colors.HexColor("#F8FAFC")), ("LEFTPADDING", (0,0), (-1,-1), 7), ("RIGHTPADDING", (0,0), (-1,-1), 7), ("TOPPADDING", (0,0), (-1,-1), 7), ("BOTTOMPADDING", (0,0), (-1,-1), 7)]
+        if qr_cell:
+            qr_index = payment_cells.index(qr_cell)
+            payment_style.append(("ALIGN", (qr_index,0), (qr_index,0), "CENTER"))
+        story += [Table([payment_cells], colWidths=payment_widths, style=payment_style), Spacer(1, 5*mm)]
 
         signature_parts = []
         signature_path = image_path(getattr(invoice.company, "signature_image_path", ""))
@@ -218,20 +210,14 @@ class PDFGenerator:
             sig = Table([[signature_parts]], colWidths=[70*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("VALIGN", (0,0), (-1,-1), "BOTTOM"), ("ALIGN", (0,0), (-1,-1), "CENTER"), ("FONTSIZE", (0,0), (-1,-1), 8), ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4)])
             story.append(KeepTogether(Table([["", sig]], colWidths=[112*mm, 70*mm], style=[("VALIGN", (0,0), (-1,-1), "TOP")])))
         def page_footer(canvas: Canvas, _doc):
-            footer_parts = ["GST Smart", invoice.company.company_name, invoice.invoice_number]
-            canvas.saveState(); canvas.setFont(font, 8); canvas.setFillColor(colors.HexColor("#64748B")); canvas.drawString(12*mm, 8*mm, " · ".join(part for part in footer_parts if present(part))); canvas.drawRightString(198*mm, 8*mm, f"Page {canvas.getPageNumber()}"); canvas.restoreState()
+            canvas.saveState(); canvas.setFont(font, 8); canvas.setFillColor(colors.HexColor("#64748B")); canvas.drawString(12*mm, 8*mm, f"GST Smart · {invoice.company.company_name} · {invoice.invoice_number}"); canvas.drawRightString(198*mm, 8*mm, f"Page {canvas.getPageNumber()}"); canvas.restoreState()
         doc.build(story, onFirstPage=page_footer, onLaterPages=page_footer)
 
     def _generate_minimal_pdf(self, invoice: Invoice, path: Path) -> None:
-        seller_parts = [invoice.company.seller_name, f"GSTIN: {invoice.company.gstin}" if invoice.company.gstin else ""]
-        seller_line = "Seller: " + " ".join(part for part in seller_parts if part)
-        lines = ["TAX INVOICE", f"Invoice: {invoice.invoice_number}  Date: {invoice.invoice_date:%d-%m-%Y}"]
-        if seller_line.strip() != "Seller:":
-            lines.append(seller_line)
-        lines += [f"Buyer: {invoice.customer.customer_name}" + (f" GSTIN: {invoice.customer.gstin}" if invoice.customer.gstin else ""), "Items:"]
+        lines = ["TAX INVOICE", f"Invoice: {invoice.invoice_number}  Date: {invoice.invoice_date:%d-%m-%Y}", f"Seller: {invoice.company.seller_name} GSTIN: {invoice.company.gstin}", f"Buyer: {invoice.customer.customer_name}" + (f" GSTIN: {invoice.customer.gstin}" if invoice.customer.gstin else ""), "Items:"]
         for item in invoice.items:
             lines.append(f"{item.item_name} HSN:{item.hsn_sac or '-'} Qty:{item.quantity:g} Total:{item.total_amount:.2f}")
-        lines += [f"Taxable: INR {invoice.taxable_amount:.2f}", f"CGST: INR {invoice.cgst:.2f} SGST: INR {invoice.sgst:.2f} IGST: INR {invoice.igst:.2f}", f"Grand Total: INR {invoice.grand_total:.2f}", amount_to_words(invoice.grand_total), getattr(invoice.company, "authorized_signature_name", "") or ""]
+        lines += [f"Taxable: INR {invoice.taxable_amount:.2f}", f"CGST: INR {invoice.cgst:.2f} SGST: INR {invoice.sgst:.2f} IGST: INR {invoice.igst:.2f}", f"Grand Total: INR {invoice.grand_total:.2f}", amount_to_words(invoice.grand_total), "Terms and Conditions apply.", getattr(invoice.company, "authorized_signature_name", "") or "", "Authorized Signature"]
         content = "BT /F1 10 Tf 50 800 Td " + " T* ".join(f"({line.replace('(', '[').replace(')', ']')})" for line in lines) + " ET"
         objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", f"<< /Length {len(content.encode())} >>\nstream\n{content}\nendstream"]
         pdf = "%PDF-1.4\n"; offsets = []
