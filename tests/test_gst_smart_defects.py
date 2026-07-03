@@ -84,6 +84,49 @@ def test_bill_to_highlight_and_empty_gst_hidden(client):
     assert b'GSTIN: Unregistered' not in rv.data
 
 
+
+def test_invoice_preview_hides_empty_company_detail_labels(client):
+    login(client)
+    with app.app_context():
+        company = Company.query.first()
+        company.company_name = "test engineering"
+        company.gstin = ""
+        company.address = ""
+        company.city = ""
+        company.state = ""
+        company.pin_code = ""
+        company.phone = ""
+        company.email = ""
+        inv = make_invoice()
+        iid = inv.id
+    rv = client.get(f'/invoice/{iid}')
+    assert b'test engineering' in rv.data
+    assert b'GSTIN:' not in rv.data
+    assert b'Phone:' not in rv.data
+    assert b'Email:' not in rv.data
+    assert b', ,' not in rv.data
+
+
+def test_invoice_preview_formats_partial_company_details_cleanly(client):
+    login(client)
+    with app.app_context():
+        company = Company.query.first()
+        company.company_name = "test engineering"
+        company.gstin = ""
+        company.address = ""
+        company.city = "Bengaluru"
+        company.state = ""
+        company.pin_code = "560001"
+        company.phone = "9876543210"
+        company.email = ""
+        inv = make_invoice()
+        iid = inv.id
+    rv = client.get(f'/invoice/{iid}')
+    assert b'Bengaluru, 560001' in rv.data
+    assert b'Phone: 9876543210' in rv.data
+    assert b'Email:' not in rv.data
+    assert b', ,' not in rv.data
+
 def test_delete_invoice_keeps_user_logged_in_and_flashes_success(client):
     login(client)
     with app.app_context(): inv = make_invoice(); iid = inv.id
