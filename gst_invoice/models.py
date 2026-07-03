@@ -67,7 +67,7 @@ class Company(db.Model):
     @ifsc_code.setter
     def ifsc_code(self, value): self.ifsc = value
     @property
-    def profile_complete(self): return bool(self.company_name and self.gstin and self.address and self.city and self.state and self.pin_code)
+    def profile_complete(self): return bool(self.company_name)
 
 
 class User(UserMixin, db.Model):
