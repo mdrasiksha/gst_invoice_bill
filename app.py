@@ -581,6 +581,22 @@ def invoice_view_context(inv: Invoice) -> dict:
     return data
 
 
+def log_invoice_tax_render_event(event: str, invoice_data: dict) -> None:
+    logger.info(
+        event,
+        extra={
+            "user_id": current_user.id if current_user.is_authenticated else None,
+            "supplier_state": invoice_data.get("supplier_state"),
+            "customer_state": invoice_data.get("customer_state"),
+            "tax_type": invoice_data.get("tax_type"),
+            "cgst_amount": invoice_data.get("cgst_amount"),
+            "sgst_amount": invoice_data.get("sgst_amount"),
+            "igst_amount": invoice_data.get("igst_amount"),
+            "total_tax_amount": invoice_data.get("total_tax_amount"),
+        },
+    )
+
+
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -826,7 +842,9 @@ def invoice_preview(invoice_id):
     if not inv.company or not inv.customer:
         logger.error("Invoice is missing related company/customer", extra={"invoice_id": invoice_id})
         abort(404)
-    return render_template("invoice_preview.html", **invoice_view_context(inv))
+    invoice_data = invoice_view_context(inv)
+    log_invoice_tax_render_event("Rendering invoice preview with finalized tax data", invoice_data)
+    return render_template("invoice_preview.html", **invoice_data)
 
 @app.route("/invoice/<int:invoice_id>/pdf")
 @login_required
@@ -840,6 +858,7 @@ def download_pdf(invoice_id):
         abort(404)
     # Regenerate on each download so updated company assets/settings (logo, QR, signature) are reflected.
     invoice_data = invoice_view_context(inv)
+    log_invoice_tax_render_event("Rendering invoice PDF download with finalized tax data", invoice_data)
     inv.pdf_path = pdf.generate(inv, invoice_data=invoice_data)
     db.session.commit()
     path = Path(inv.pdf_path)
