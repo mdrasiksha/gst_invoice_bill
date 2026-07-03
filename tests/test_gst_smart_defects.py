@@ -415,3 +415,55 @@ def test_description_suggestion_dropdown_shows_only_descriptions_and_caps_at_fiv
     assert "set('hsn_sac[]',suggestion.hsn_sac)" in js
     assert "set('unit_price[]',suggestion.unit_price)" in js
     assert "set('gst_percentage[]',suggestion.gst_percentage)" in js
+
+def test_company_settings_allows_empty_save_and_redirects_to_invoice(client):
+    login(client)
+    rv = client.post('/settings', data={
+        "csrf_token": csrf(client),
+        "action": "save",
+        "company_name": "",
+        "gstin": "",
+        "address": "",
+        "city": "",
+        "state": "",
+        "pin_code": "",
+        "phone": "",
+        "email": "",
+    }, follow_redirects=False)
+    assert rv.status_code == 302
+    assert rv.headers["Location"].endswith('/invoice/new')
+    with app.app_context():
+        company = Company.query.first()
+        assert company.company_name == ""
+        assert company.gstin == ""
+        assert company.address == ""
+
+
+def test_company_settings_skip_redirects_to_invoice_without_validation(client):
+    login(client)
+    rv = client.post('/settings', data={"csrf_token": csrf(client), "action": "skip", "email": "not-an-email"}, follow_redirects=False)
+    assert rv.status_code == 302
+    assert rv.headers["Location"].endswith('/invoice/new')
+
+
+def test_incomplete_company_is_not_forced_back_to_setup(client):
+    login(client)
+    with app.app_context():
+        company = Company.query.first()
+        company.company_name = ""
+        company.gstin = ""
+        company.address = ""
+        company.city = ""
+        company.state = ""
+        company.pin_code = ""
+        db.session.commit()
+    rv = client.get('/invoice/new', follow_redirects=False)
+    assert rv.status_code == 200
+    assert b'Create Invoice' in rv.data
+
+
+def test_optional_company_field_validation_is_specific(client):
+    login(client)
+    rv = client.post('/settings', data={"csrf_token": csrf(client), "action": "save", "email": "bad-email"}, follow_redirects=True)
+    assert b'Please enter a valid email address, or leave it blank for now.' in rv.data
+    assert b'Company name is required.' not in rv.data

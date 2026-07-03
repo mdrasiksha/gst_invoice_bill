@@ -31,20 +31,16 @@ def parse_gst_rate(value: str) -> float:
 
 
 def validate_company(company: Company) -> None:
-    if not company.seller_name:
-        raise ValueError("Company name is required.")
-    if not company.address:
-        raise ValueError("Company address is required.")
-    if not validate_gstin(company.gstin):
-        raise ValueError("Company GSTIN is invalid.")
+    if company.gstin and not validate_gstin(company.gstin, optional=True):
+        raise ValueError("Please enter a valid GSTIN, or leave it blank for now.")
     if company.state and not state_code_from_state(company.state):
-        raise ValueError("Company state must be a valid Indian state or union territory.")
+        raise ValueError("Please choose a valid Indian state or union territory, or leave state blank.")
     if company.state and company.gstin and state_code_from_gstin(company.gstin) != state_code_from_state(company.state):
-        raise ValueError("Company state does not match the GSTIN state code.")
-    if not validate_phone(company.phone):
-        raise ValueError("Company phone number is invalid.")
-    if not validate_email(company.email):
-        raise ValueError("Company email is invalid.")
+        raise ValueError("GSTIN state code does not match the selected state. Please check GSTIN or state.")
+    if company.phone and not validate_phone(company.phone):
+        raise ValueError("Please enter a valid phone number, or leave it blank for now.")
+    if company.email and not validate_email(company.email):
+        raise ValueError("Please enter a valid email address, or leave it blank for now.")
 
 
 def validate_customer(customer: Customer) -> None:
