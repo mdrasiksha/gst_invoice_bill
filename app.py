@@ -109,10 +109,8 @@ def create_app() -> Flask:
             token = session.get("csrf_token")
             if not token or token != request.form.get("csrf_token"):
                 abort(400, "Invalid CSRF token")
-        if current_user.is_authenticated and request.endpoint not in PUBLIC_ENDPOINTS | {"logout", "company_setup", "static", "uploaded_file", "admin_index", "admin_dashboard"}:
-            company = ensure_user_company(current_user)
-            if not company.profile_complete:
-                return redirect(url_for("company_setup"))
+        if current_user.is_authenticated:
+            ensure_user_company(current_user)
 
     @app.context_processor
     def inject_globals():
@@ -526,8 +524,6 @@ def update_company_from_form(company: Company):
     signature = save_signature(request.files.get("signature_image"));
     if signature: company.signature_image_path = signature
     if f.get("remove_signature_image") == "1": company.signature_image_path = ""
-    if not all([company.company_name, company.gstin, company.address, company.city, company.state, company.pin_code]):
-        raise ValueError("Company name, GSTIN, address, city, state and PIN code are required.")
     validate_company(company)
 
 
@@ -609,7 +605,7 @@ def register():
             flash("Email is required.", "danger"); return redirect(url_for("register"))
         if User.query.filter_by(email=email).first(): flash("Email already registered.", "danger"); return redirect(url_for("register"))
         if len(password) < 8: flash("Password must be at least 8 characters.", "danger"); return redirect(url_for("register"))
-        company = Company(company_name=request.form.get("company_name", "New Company").strip() or "New Company", gstin="", address="")
+        company = Company(company_name=(request.form.get("company_name", "") or "").strip(), gstin="", address="")
         user = User(username=request.form.get("username", email).strip(), email=email, company=company); user.set_password(password)
         try:
             db.session.add_all([company, user]); db.session.commit()
@@ -721,10 +717,20 @@ def dashboard():
 @app.route("/settings", methods=["GET", "POST"])
 @login_required
 def company_setup():
+    company = ensure_user_company(current_user)
     if request.method == "POST":
-        try: update_company_from_form(ensure_user_company(current_user)); db.session.commit(); flash("Company profile saved.", "success"); return redirect(url_for("dashboard"))
-        except Exception as exc: db.session.rollback(); flash(str(exc), "danger")
-    return render_template("settings.html", company=ensure_user_company(current_user), indian_states=INDIAN_STATE_CODES)
+        if request.form.get("action") == "skip":
+            flash("No problem — you can update Company Settings anytime.", "success")
+            return redirect(url_for("create_invoice"))
+        try:
+            update_company_from_form(company)
+            db.session.commit()
+            flash("Company settings saved. You can update them anytime.", "success")
+            return redirect(url_for("create_invoice"))
+        except Exception as exc:
+            db.session.rollback()
+            flash(str(exc), "danger")
+    return render_template("settings.html", company=company, indian_states=INDIAN_STATE_CODES)
 
 @app.route("/customers")
 @login_required
