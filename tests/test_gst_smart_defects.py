@@ -554,3 +554,82 @@ def test_no_gst_preview_and_pdf_use_zero_tax_data(client, monkeypatch, caplog):
     assert captured[-1]["totals"] == preview_data["totals"]
     assert captured[-1]["total_tax_amount"] == 0.0
     assert "Finalized invoice tax breakdown" in caplog.text
+
+
+def test_new_user_no_company_settings_uses_shared_tax_data_for_preview_and_pdf(client, monkeypatch):
+    login(client)
+    import app as app_module
+    captured = []
+    with app.app_context():
+        company = Company.query.first()
+        company.gstin = ""
+        company.state = ""
+        db.session.commit()
+
+    def fake_generate(invoice, invoice_data=None):
+        captured.append(invoice_data)
+        return str(Path(app_module.BASE_DIR) / "uploads" / f"{invoice.invoice_number}.pdf")
+
+    monkeypatch.setattr(app_module.pdf, "generate", fake_generate)
+    data = invoice_post_data(invoice_number="INV-NEW-NO-SETTINGS", new_customer_state="Karnataka", state_code="29", **{"gst_percentage[]": "18.0"})
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**data, "csrf_token": csrf(client)})
+    assert rv.status_code == 200
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-NEW-NO-SETTINGS").one()
+        preview_data = app_module.invoice_view_context(inv)
+    assert preview_data["supplier_state"] == "Karnataka"
+    assert preview_data["tax_type"] == "CGST_SGST"
+    assert preview_data["cgst_amount"] == 9.0
+    assert preview_data["sgst_amount"] == 9.0
+    assert captured[-1]["totals"] == preview_data["totals"]
+
+
+def test_new_user_with_company_settings_uses_shared_tax_data_for_preview_and_pdf(client, monkeypatch):
+    login(client)
+    import app as app_module
+    captured = []
+
+    def fake_generate(invoice, invoice_data=None):
+        captured.append(invoice_data)
+        return str(Path(app_module.BASE_DIR) / "uploads" / f"{invoice.invoice_number}.pdf")
+
+    monkeypatch.setattr(app_module.pdf, "generate", fake_generate)
+    data = invoice_post_data(invoice_number="INV-NEW-WITH-SETTINGS", new_customer_state="Karnataka", state_code="29", **{"gst_percentage[]": "18.0"})
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**data, "csrf_token": csrf(client)})
+    assert rv.status_code == 200
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-NEW-WITH-SETTINGS").one()
+        preview_data = app_module.invoice_view_context(inv)
+    assert preview_data["supplier_state"] == "Karnataka"
+    assert preview_data["tax_type"] == "CGST_SGST"
+    assert captured[-1]["tax_type"] == preview_data["tax_type"]
+    assert captured[-1]["grand_total"] == preview_data["grand_total"]
+
+
+def test_existing_user_saved_company_settings_uses_shared_tax_data_for_preview_and_pdf(client, monkeypatch):
+    login(client)
+    import app as app_module
+    captured = []
+    with app.app_context():
+        company = Company.query.first()
+        customer = Customer(company_id=company.id, customer_name="Saved Buyer", address="Addr", city="Chennai", state="Tamil Nadu", state_code="33")
+        db.session.add(customer)
+        db.session.commit()
+        customer_id = customer.id
+
+    def fake_generate(invoice, invoice_data=None):
+        captured.append(invoice_data)
+        return str(Path(app_module.BASE_DIR) / "uploads" / f"{invoice.invoice_number}.pdf")
+
+    monkeypatch.setattr(app_module.pdf, "generate", fake_generate)
+    data = invoice_post_data(customer_type="existing", customer_id=str(customer_id), invoice_number="INV-EXISTING-SETTINGS", state_code="33", **{"gst_percentage[]": "18.0"})
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data={**data, "csrf_token": csrf(client)})
+    assert rv.status_code == 200
+    with app.app_context():
+        inv = Invoice.query.filter_by(invoice_number="INV-EXISTING-SETTINGS").one()
+        preview_data = app_module.invoice_view_context(inv)
+    assert preview_data["tax_type"] == "IGST"
+    assert preview_data["igst_amount"] == 18.0
+    assert preview_data["cgst_amount"] == 0.0
+    assert preview_data["sgst_amount"] == 0.0
+    assert captured[-1]["totals"] == preview_data["totals"]
