@@ -16,7 +16,7 @@ from sqlalchemy import func, text
 
 from gst_invoice.favicon import ensure_favicon_assets
 from gst_invoice.invoice_generator import calculate_invoice
-from gst_invoice.invoice_data import build_invoice_data
+from gst_invoice.invoice_data import build_invoice_data, company_detail_lines
 from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, ProductDescriptionSuggestion, User, db
 from gst_invoice.pdf_generator import PDFGenerator
 from gst_invoice.utils import INDIAN_STATE_CODES, amount_to_words, normalize_state_name, state_code_from_gstin, state_code_from_state, validate_email, validate_gstin, validate_phone
@@ -579,6 +579,7 @@ def scoped_invoice(invoice_id: int) -> Invoice | None:
 def invoice_view_context(inv: Invoice) -> dict:
     data = build_invoice_data(inv)
     data["amount_to_words"] = amount_to_words
+    data["company_detail_lines"] = company_detail_lines(inv.company)
     return data
 
 
