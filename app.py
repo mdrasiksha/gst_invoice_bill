@@ -20,6 +20,7 @@ from gst_invoice.invoice_data import build_invoice_data
 from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, ProductDescriptionSuggestion, User, db
 from gst_invoice.pdf_generator import PDFGenerator
 from gst_invoice.utils import INDIAN_STATE_CODES, amount_to_words, normalize_state_name, state_code_from_gstin, state_code_from_state, validate_email, validate_gstin, validate_phone
+from gst_invoice.tax_service import DEFAULT_SUPPLIER_STATE
 from gst_invoice.validators import ALLOWED_GST_RATES, parse_gst_rate, parse_positive_float, parse_required_date, validate_company, validate_customer, validate_invoice_dates, validate_item
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -829,7 +830,9 @@ def create_invoice():
                 return jsonify({"ok": False, "message": message}), 400
             flash(message, "danger")
     defaults={"invoice_number":next_invoice_number(current_user.company_id),"invoice_date":date.today().isoformat(),"due_date":(date.today()+timedelta(days=15)).isoformat()}
-    return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).order_by(Customer.customer_name.asc(), Customer.id.asc()).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES, indian_states=INDIAN_STATE_CODES, description_suggestions=user_description_suggestions(current_user.id), amount_to_words=amount_to_words)
+    default_supplier_state = normalize_state_name(current_user.company.state) or DEFAULT_SUPPLIER_STATE
+    default_supplier_state_code = (current_user.company.state_code or state_code_from_state(default_supplier_state) or state_code_from_state(DEFAULT_SUPPLIER_STATE) or "").strip().zfill(2)
+    return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).order_by(Customer.customer_name.asc(), Customer.id.asc()).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES, indian_states=INDIAN_STATE_CODES, description_suggestions=user_description_suggestions(current_user.id), amount_to_words=amount_to_words, default_supplier_state_code=default_supplier_state_code)
 
 @app.route("/invoice/<int:invoice_id>")
 @app.route("/invoice/view/<int:invoice_id>")
