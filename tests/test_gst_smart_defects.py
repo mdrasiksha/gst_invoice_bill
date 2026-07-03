@@ -415,3 +415,45 @@ def test_description_suggestion_dropdown_shows_only_descriptions_and_caps_at_fiv
     assert "set('hsn_sac[]',suggestion.hsn_sac)" in js
     assert "set('unit_price[]',suggestion.unit_price)" in js
     assert "set('gst_percentage[]',suggestion.gst_percentage)" in js
+
+
+def test_company_settings_allows_all_profile_fields_empty(client):
+    login(client)
+    rv = client.post('/settings', data={"csrf_token": csrf(client)}, follow_redirects=True)
+    assert b'Company profile saved.' in rv.data
+    assert b'Company name is required.' not in rv.data
+    with app.app_context():
+        company = Company.query.first()
+        assert company.company_name == ""
+        assert company.gstin == ""
+        assert company.address == ""
+
+
+def test_invoice_preview_hides_empty_company_setting_placeholders(client):
+    login(client)
+    with app.app_context():
+        company = Company.query.first()
+        company.company_name = ""
+        company.gstin = ""
+        company.address = ""
+        company.city = ""
+        company.state = ""
+        company.pin_code = ""
+        company.phone = ""
+        company.email = ""
+        company.website = ""
+        company.bank_name = ""
+        company.account_number = ""
+        company.ifsc = ""
+        company.upi_id = ""
+        company.qr_code_path = ""
+        company.signature_image_path = ""
+        company.authorized_signature_name = ""
+        db.session.commit()
+        inv = make_invoice()
+        iid = inv.id
+    rv = client.get(f'/invoice/{iid}')
+    assert b'GSTIN: -' not in rv.data
+    assert b'Bank Details' not in rv.data
+    assert b'Terms & Conditions' not in rv.data
+    assert b'Authorized Signature' not in rv.data
