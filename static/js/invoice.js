@@ -92,6 +92,16 @@
     const submit=form.querySelector('#generatePdfBtn');
     alertBox?.classList.add('d-none');
     overlay?.classList.remove('d-none');
+    const taxSnapshot={
+      taxable_amount:document.getElementById('taxableTotal')?.textContent||'',
+      tax_rate:Math.max(...Array.from(table.querySelectorAll('[name="gst_percentage[]"]')).map(el=>parseFloat(el.value)||0),0),
+      cgst_amount:document.getElementById('cgstTotal')?.textContent||'',
+      sgst_amount:document.getElementById('sgstTotal')?.textContent||'',
+      igst_amount:document.getElementById('igstTotal')?.textContent||'',
+      total_tax_amount:money((parseFloat((document.getElementById('cgstTotal')?.textContent||'').replace(/[^0-9.-]/g,''))||0)+(parseFloat((document.getElementById('sgstTotal')?.textContent||'').replace(/[^0-9.-]/g,''))||0)+(parseFloat((document.getElementById('igstTotal')?.textContent||'').replace(/[^0-9.-]/g,''))||0)),
+      grand_total:document.getElementById('grandTotal')?.textContent||''
+    };
+    console.info('Submitting invoice for PDF generation with preview tax values', taxSnapshot);
     if(submit) submit.disabled=true;
     try{
       const response=await fetch(form.action || window.location.href,{method:'POST',body:new FormData(form),headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});

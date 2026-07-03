@@ -20,6 +20,21 @@ class PDFGenerator:
 
     def generate(self, invoice: Invoice, invoice_data: dict | None = None) -> str:
         invoice_data = invoice_data or build_invoice_data(invoice)
+        totals = invoice_data["totals"]
+        logger.info(
+            "Starting PDF generation with finalized tax values",
+            extra={
+                "invoice_id": invoice.id,
+                "invoice_number": invoice.invoice_number,
+                "taxable_amount": invoice_data.get("taxable_amount", totals.get("taxable_amount")),
+                "tax_rate": invoice_data.get("tax_rate", totals.get("tax_rate")),
+                "cgst_amount": invoice_data.get("cgst_amount", totals.get("cgst_amount")),
+                "sgst_amount": invoice_data.get("sgst_amount", totals.get("sgst_amount")),
+                "igst_amount": invoice_data.get("igst_amount", totals.get("igst_amount")),
+                "total_tax_amount": invoice_data.get("total_tax_amount", totals.get("total_tax_amount")),
+                "grand_total": invoice_data.get("grand_total", totals.get("grand_total")),
+            },
+        )
         path = self.output_dir / f"{invoice.invoice_number}.pdf"
         try:
             self._generate_reportlab(invoice, path, invoice_data)
@@ -158,10 +173,10 @@ class PDFGenerator:
         summary_rows = [["Taxable Amount", money(totals["taxable_amount"])]]
         if invoice_data["tax_type"] == "CGST_SGST":
             rate = totals["max_gst_rate"] / 2
-            summary_rows += [[f"CGST ({rate:g}%)", money(totals["cgst"])], [f"SGST ({rate:g}%)", money(totals["sgst"])], ["IGST (0%)", money(0)]]
+            summary_rows += [[f"CGST ({rate:g}%)", money(totals["cgst_amount"])], [f"SGST ({rate:g}%)", money(totals["sgst_amount"])], ["IGST (0%)", money(0)]]
         else:
             rate = totals["max_gst_rate"]
-            summary_rows += [["CGST (0%)", money(0)], ["SGST (0%)", money(0)], [f"IGST ({rate:g}%)", money(totals["igst"])]]
+            summary_rows += [[f"IGST ({rate:g}%)", money(totals["igst_amount"])]]
         summary_rows += [["Round Off", money(totals["round_off"])], ["Grand Total", money(totals["grand_total"])]]
         summary = Table(summary_rows, colWidths=[44*mm, 38*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("ALIGN", (1,0), (1,-1), "RIGHT"), ("FONTNAME", (0,0), (-1,-1), font), ("FONTNAME", (0,0), (0,-1), bold), ("BACKGROUND", (0,-1), (-1,-1), accent), ("TEXTCOLOR", (0,-1), (-1,-1), colors.white), ("FONTNAME", (0,-1), (-1,-1), bold), ("FONTSIZE", (0,0), (-1,-1), 8.5)])
         words = Paragraph(f"<b>Amount in Words:</b><br/>{esc(amount_to_words(totals["grand_total"]))}", styles["Small"])
@@ -222,7 +237,7 @@ class PDFGenerator:
         for item in invoice.items:
             lines.append(f"{item.item_name} HSN:{item.hsn_sac or '-'} Qty:{item.quantity:g} Total:{item.total_amount:.2f}")
         totals = invoice_data["totals"]
-        lines += [f"Tax Type: {'CGST + SGST' if invoice_data['tax_type'] == 'CGST_SGST' else 'IGST'}", f"Taxable: INR {totals['taxable_amount']:.2f}", f"CGST: INR {totals['cgst']:.2f} SGST: INR {totals['sgst']:.2f} IGST: INR {totals['igst']:.2f}", f"Grand Total: INR {totals['grand_total']:.2f}", amount_to_words(totals['grand_total']), "Terms and Conditions apply.", getattr(invoice.company, "authorized_signature_name", "") or "", "Authorized Signature"]
+        lines += [f"Tax Type: {'CGST + SGST' if invoice_data['tax_type'] == 'CGST_SGST' else 'IGST'}", f"Taxable: INR {totals['taxable_amount']:.2f}", f"CGST: INR {totals['cgst_amount']:.2f} SGST: INR {totals['sgst_amount']:.2f} IGST: INR {totals['igst_amount']:.2f}", f"Grand Total: INR {totals['grand_total']:.2f}", amount_to_words(totals['grand_total']), "Terms and Conditions apply.", getattr(invoice.company, "authorized_signature_name", "") or "", "Authorized Signature"]
         content = "BT /F1 10 Tf 50 800 Td " + " T* ".join(f"({line.replace('(', '[').replace(')', ']')})" for line in lines) + " ET"
         objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", f"<< /Length {len(content.encode())} >>\nstream\n{content}\nendstream"]
         pdf = "%PDF-1.4\n"; offsets = []
