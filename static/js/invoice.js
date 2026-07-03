@@ -3,6 +3,7 @@
   const table=document.getElementById('itemsTable');
   const field=(name)=>form.querySelector(`[name="${name}"]`);
   const money=(v)=>`₹${(Number(v)||0).toFixed(2)}`;
+  const companyStateCode=()=>((form.dataset.companyStateCode||document.body.dataset.companyState||'').toString().trim().padStart(2,'0'));
   const descriptionSuggestions=JSON.parse(form.dataset.descriptionSuggestions||'[]');
   const normalizeText=(value)=>(value||'').toString().trim().toLowerCase();
   const escapeHtml=(value)=>(value||'').toString().replace(/[&<>'"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
@@ -40,7 +41,8 @@
   }
   function syncSupplyFields(){
     const data=customerData();
-    const code=field('state_code'); if(code) code.value=data.stateCode||'';
+    const code=field('state_code');
+    if(code) code.value=(data.stateCode||companyStateCode()||'').toString().trim().padStart(2,'0');
   }
   function updateCustomer(){
     syncSupplyFields();
@@ -57,7 +59,11 @@
   }
   function updateText(){document.querySelectorAll('[data-preview]').forEach(el=>{const f=field(el.dataset.preview); if(f)el.textContent=f.value;}); const terms=document.getElementById('previewTerms'); const termsField=field('terms'); if(terms&&termsField)terms.textContent=termsField.value;}
   function recalc(){ if(!table) return; let taxable=0,gst=0,total=0,html=''; table.querySelectorAll('tbody tr').forEach((row,idx)=>{const name=row.querySelector('[name="item_name[]"]').value||'Item'; const hsn=row.querySelector('[name="hsn_sac[]"]').value||'-'; const qty=parseFloat(row.querySelector('[name="quantity[]"]').value)||0; const rate=parseFloat(row.querySelector('[name="unit_price[]"]').value)||0; const gstRate=parseFloat(row.querySelector('[name="gst_percentage[]"]').value)||0; const tx=Math.max(qty,0)*Math.max(rate,0); const gstAmt=tx*gstRate/100; const line=tx+gstAmt; row.querySelector('.line-total').textContent=money(line); taxable+=tx; gst+=gstAmt; total+=line; html+=`<tr><td>${idx+1}</td><td>${name}</td><td class="text-center">${hsn}</td><td class="text-center">${qty}</td><td class="text-center">${money(rate)}</td><td class="text-center">${gstRate}%</td><td class="text-center">${money(line)}</td></tr>`; }); const intra=isIntra(); const rounded=Math.round(total); const roundOff=rounded-total; const set=(id,val)=>{const el=document.getElementById(id); if(el) el.textContent=money(val)}; set('taxableTotal',taxable); const maxGst=Math.max(...Array.from(table.querySelectorAll('[name="gst_percentage[]"]')).map(el=>parseFloat(el.value)||0),0); const label=(id,text)=>{const el=document.getElementById(id); if(el)el.textContent=text}; label('cgstLabel',`CGST (${intra?maxGst/2:0}%)`); label('sgstLabel',`SGST (${intra?maxGst/2:0}%)`); label('igstLabel',`IGST (${intra?0:maxGst}%)`); set('cgstTotal',intra?gst/2:0); set('sgstTotal',intra?gst/2:0); set('igstTotal',intra?0:gst); set('roundOffTotal',roundOff); set('grandTotal',rounded); const words=document.getElementById('previewWords'); if(words)words.textContent=toWords(rounded); const pi=document.getElementById('previewItems'); if(pi) pi.innerHTML=html||'<tr><td colspan="7" class="text-muted">Add an item</td></tr>'; updateCustomer(); updateText(); }
-  function isIntra(){return (document.body.dataset.companyState||'') === (field('state_code')?.value||'');}
+  function isIntra(){
+    const supplier=companyStateCode();
+    const customer=(field('state_code')?.value||supplier).toString().trim().padStart(2,'0');
+    return !customer || !supplier || supplier === customer;
+  }
   function closeDescriptionSuggestions(except){document.querySelectorAll('.description-suggestions').forEach(box=>{if(box!==except){box.classList.add('d-none');box.innerHTML='';}});}
   function applyDescriptionSuggestion(row,suggestion){
     const set=(name,value)=>{const el=row.querySelector(`[name="${name}"]`); if(el && value!=='' && value!==null && value!==undefined){el.value=value; el.dispatchEvent(new Event('input',{bubbles:true}));}};
@@ -80,7 +86,9 @@
   function bindRow(row){row.querySelectorAll('.live,.calc,input,select,textarea').forEach(el=>el.addEventListener('input',recalc)); const desc=row.querySelector('[name="item_name[]"]'); if(desc){desc.classList.add('description-input'); desc.setAttribute('autocomplete','off'); desc.addEventListener('input',()=>updateDescriptionSuggestions(desc)); desc.addEventListener('focus',()=>updateDescriptionSuggestions(desc)); desc.addEventListener('blur',()=>setTimeout(()=>closeDescriptionSuggestions(),120));} const rm=row.querySelector('.remove-row'); if(rm)rm.addEventListener('click',()=>{if(table.querySelectorAll('tbody tr').length>1){row.remove();recalc();}});}
   table?.querySelectorAll('tbody tr').forEach(bindRow);
   document.getElementById('addRowBtn')?.addEventListener('click',()=>{const clone=table.querySelector('tbody tr').cloneNode(true);clone.querySelectorAll('input').forEach(input=>{input.value=input.name==='quantity[]'?'1':input.name==='unit_price[]'?'0':''});clone.querySelectorAll('.description-suggestions').forEach(box=>{box.innerHTML='';box.classList.add('d-none');});clone.querySelector('[name="gst_percentage[]"]').value='18.0';table.querySelector('tbody').appendChild(clone);bindRow(clone);recalc();});
-  form.querySelectorAll('.live,input,select,textarea').forEach(el=>el.addEventListener('input',()=>{updateCustomerMode();recalc();}));
+  form.querySelectorAll('.live,input,select,textarea').forEach(el=>{
+    ['input','change'].forEach(eventName=>el.addEventListener(eventName,()=>{updateCustomerMode();recalc();}));
+  });
   form.querySelectorAll('[name="customer_type"]').forEach(el=>el.addEventListener('change',()=>{updateCustomerMode();recalc();}));
   form.addEventListener('submit',async(e)=>{
     if(isNewCustomer()){const required=[['new_customer_name','Customer Name']]; const missing=required.find(([name])=>!field(name)?.value.trim()); if(missing){e.preventDefault(); field(missing[0])?.focus(); alert(`${missing[1]} is required for a new customer.`); return;}}
