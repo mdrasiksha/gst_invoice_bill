@@ -31,6 +31,8 @@ def parse_gst_rate(value: str) -> float:
 
 
 def validate_company(company: Company) -> None:
+    if not company.seller_name:
+        raise ValueError("Company name is required.")
     if not validate_gstin(company.gstin, optional=True):
         raise ValueError("Company GSTIN is invalid.")
     if company.state and not state_code_from_state(company.state):
