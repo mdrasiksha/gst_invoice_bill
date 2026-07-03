@@ -16,6 +16,7 @@ from sqlalchemy import func, text
 
 from gst_invoice.favicon import ensure_favicon_assets
 from gst_invoice.invoice_generator import calculate_invoice
+from gst_invoice.invoice_data import build_invoice_data
 from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, ProductDescriptionSuggestion, User, db
 from gst_invoice.pdf_generator import PDFGenerator
 from gst_invoice.utils import INDIAN_STATE_CODES, amount_to_words, normalize_state_name, state_code_from_gstin, state_code_from_state, validate_email, validate_gstin, validate_phone
@@ -575,26 +576,9 @@ def scoped_invoice(invoice_id: int) -> Invoice | None:
 
 
 def invoice_view_context(inv: Invoice) -> dict:
-    items = list(inv.items or [])
-    max_gst_rate = max((float(item.gst_percentage or 0) for item in items), default=0.0)
-    totals = {
-        "taxable_amount": float(inv.taxable_amount or 0),
-        "cgst": float(inv.cgst or 0),
-        "sgst": float(inv.sgst or 0),
-        "igst": float(inv.igst or 0),
-        "round_off": float(inv.round_off or 0),
-        "grand_total": float(inv.grand_total or 0),
-        "max_gst_rate": max_gst_rate,
-    }
-    return {
-        "invoice": inv,
-        "customer": inv.customer,
-        "company": inv.company,
-        "invoice_items": items,
-        "items": items,
-        "totals": totals,
-        "amount_to_words": amount_to_words,
-    }
+    data = build_invoice_data(inv)
+    data["amount_to_words"] = amount_to_words
+    return data
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -818,7 +802,7 @@ def create_invoice():
                 item=InvoiceItem(item_name=name.strip(), hsn_sac=hsn_values[idx].strip() if idx < len(hsn_values) else "", quantity=quantity, unit_price=unit_price, gst_percentage=gst_percentage)
                 validate_item(item); inv.items.append(item)
             if not inv.items: raise ValueError("Add at least one product or service row.")
-            validate_invoice_dates(inv.invoice_date, inv.due_date); calculate_invoice(inv); db.session.add(inv); db.session.flush(); inv.pdf_path=pdf.generate(inv); remember_description_suggestions(current_user.id, inv.items); db.session.commit(); logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
+            validate_invoice_dates(inv.invoice_date, inv.due_date); calculate_invoice(inv); db.session.add(inv); db.session.flush(); invoice_data = invoice_view_context(inv); inv.pdf_path=pdf.generate(inv, invoice_data=invoice_data); remember_description_suggestions(current_user.id, inv.items); db.session.commit(); logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
             if wants_json:
                 return jsonify({"ok": True, "message": f"Invoice {inv.invoice_number} generated successfully.", "download_url": url_for("download_pdf", invoice_id=inv.id), "filename": f"{inv.invoice_number}.pdf"})
             flash(f"Invoice {inv.invoice_number} saved.", "success"); return redirect(url_for("download_pdf", invoice_id=inv.id))
@@ -855,7 +839,8 @@ def download_pdf(invoice_id):
         logger.error("Invoice PDF requested for incomplete invoice", extra={"invoice_id": invoice_id})
         abort(404)
     # Regenerate on each download so updated company assets/settings (logo, QR, signature) are reflected.
-    inv.pdf_path = pdf.generate(inv)
+    invoice_data = invoice_view_context(inv)
+    inv.pdf_path = pdf.generate(inv, invoice_data=invoice_data)
     db.session.commit()
     path = Path(inv.pdf_path)
     return send_file(path, as_attachment=True, download_name=f"{inv.invoice_number}.pdf")

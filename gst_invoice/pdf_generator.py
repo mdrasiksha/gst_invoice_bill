@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .models import Invoice
 from .utils import amount_to_words
+from .invoice_data import build_invoice_data
 
 BASE_DIR = Path(__file__).resolve().parent
 INVOICE_DIR = BASE_DIR / "invoices"
@@ -17,18 +18,19 @@ class PDFGenerator:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def generate(self, invoice: Invoice) -> str:
+    def generate(self, invoice: Invoice, invoice_data: dict | None = None) -> str:
+        invoice_data = invoice_data or build_invoice_data(invoice)
         path = self.output_dir / f"{invoice.invoice_number}.pdf"
         try:
-            self._generate_reportlab(invoice, path)
+            self._generate_reportlab(invoice, path, invoice_data)
         except ModuleNotFoundError:
-            self._generate_minimal_pdf(invoice, path)
+            self._generate_minimal_pdf(invoice, path, invoice_data)
         except Exception:
             logger.exception("ReportLab PDF generation failed", extra={"invoice_number": invoice.invoice_number})
             raise
         return str(path)
 
-    def _generate_reportlab(self, invoice: Invoice, path: Path) -> None:
+    def _generate_reportlab(self, invoice: Invoice, path: Path, invoice_data: dict) -> None:
         from reportlab.lib import colors
         from reportlab.lib.enums import TA_CENTER, TA_RIGHT
         from reportlab.lib.pagesizes import A4
@@ -128,7 +130,8 @@ class PDFGenerator:
         header.setStyle(TableStyle([("BOX", (0,0), (-1,-1), 0.8, border), ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("LEFTPADDING", (0,0), (-1,-1), 6), ("RIGHTPADDING", (0,0), (-1,-1), 6), ("TOPPADDING", (0,0), (-1,-1), 6), ("BOTTOMPADDING", (0,0), (-1,-1), 6)]))
         story += [header, Spacer(1, 4*mm)]
 
-        meta_rows = [["Invoice Number", invoice.invoice_number, "Invoice Date", invoice.invoice_date.strftime("%d-%m-%Y")], ["Supply State Code", invoice.state_code, "Tax Type", "CGST + SGST" if invoice.is_intrastate else "IGST"]]
+        tax_type_label = "CGST + SGST" if invoice_data["tax_type"] == "CGST_SGST" else "IGST"
+        meta_rows = [["Invoice Number", invoice.invoice_number, "Invoice Date", invoice.invoice_date.strftime("%d-%m-%Y")], ["Supply State Code", invoice_data["customer_state_code"], "Tax Type", tax_type_label]]
         meta = Table(meta_rows, colWidths=[35*mm, 56*mm, 35*mm, 56*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("BACKGROUND", (0,0), (0,-1), light), ("BACKGROUND", (2,0), (2,-1), light), ("FONTNAME", (0,0), (-1,-1), font), ("FONTNAME", (0,0), (0,-1), bold), ("FONTNAME", (2,0), (2,-1), bold), ("FONTSIZE", (0,0), (-1,-1), 8)])
         story += [meta, Spacer(1, 4*mm)]
         customer_address = ", ".join([p for p in [invoice.customer.address, invoice.customer.city, invoice.customer.state, invoice.customer.pin_code] if present(p)])
@@ -151,16 +154,17 @@ class PDFGenerator:
         items.setStyle(TableStyle([("GRID", (0,0), (-1,-1), 0.4, border), ("BACKGROUND", (0,0), (-1,0), blue), ("TEXTCOLOR", (0,0), (-1,0), colors.white), ("FONTNAME", (0,0), (-1,0), bold), ("FONTNAME", (0,1), (-1,-1), font), ("FONTSIZE", (0,0), (-1,-1), 7.5), ("ALIGN", (0,0), (0,-1), "CENTER"), ("ALIGN", (2,1), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "TOP"), ("LEFTPADDING", (0,0), (-1,-1), 4), ("RIGHTPADDING", (0,0), (-1,-1), 4), ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5), ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#FAFCFF")])]))
         story += [items, Spacer(1, 4*mm)]
 
-        summary_rows = [["Taxable Amount", money(invoice.taxable_amount)]]
-        if invoice.is_intrastate:
-            rate = max((i.gst_percentage for i in invoice.items), default=0) / 2
-            summary_rows += [[f"CGST ({rate:g}%)", money(invoice.cgst)], [f"SGST ({rate:g}%)", money(invoice.sgst)], ["IGST (0%)", money(0)]]
+        totals = invoice_data["totals"]
+        summary_rows = [["Taxable Amount", money(totals["taxable_amount"])]]
+        if invoice_data["tax_type"] == "CGST_SGST":
+            rate = totals["max_gst_rate"] / 2
+            summary_rows += [[f"CGST ({rate:g}%)", money(totals["cgst"])], [f"SGST ({rate:g}%)", money(totals["sgst"])], ["IGST (0%)", money(0)]]
         else:
-            rate = max((i.gst_percentage for i in invoice.items), default=0)
-            summary_rows += [["CGST (0%)", money(0)], ["SGST (0%)", money(0)], [f"IGST ({rate:g}%)", money(invoice.igst)]]
-        summary_rows += [["Round Off", money(invoice.round_off)], ["Grand Total", money(invoice.grand_total)]]
+            rate = totals["max_gst_rate"]
+            summary_rows += [["CGST (0%)", money(0)], ["SGST (0%)", money(0)], [f"IGST ({rate:g}%)", money(totals["igst"])]]
+        summary_rows += [["Round Off", money(totals["round_off"])], ["Grand Total", money(totals["grand_total"])]]
         summary = Table(summary_rows, colWidths=[44*mm, 38*mm], style=[("GRID", (0,0), (-1,-1), 0.45, border), ("ALIGN", (1,0), (1,-1), "RIGHT"), ("FONTNAME", (0,0), (-1,-1), font), ("FONTNAME", (0,0), (0,-1), bold), ("BACKGROUND", (0,-1), (-1,-1), accent), ("TEXTCOLOR", (0,-1), (-1,-1), colors.white), ("FONTNAME", (0,-1), (-1,-1), bold), ("FONTSIZE", (0,0), (-1,-1), 8.5)])
-        words = Paragraph(f"<b>Amount in Words:</b><br/>{esc(amount_to_words(invoice.grand_total))}", styles["Small"])
+        words = Paragraph(f"<b>Amount in Words:</b><br/>{esc(amount_to_words(totals["grand_total"]))}", styles["Small"])
         story += [Table([[words, summary]], colWidths=[98*mm, 84*mm], style=[("VALIGN", (0,0), (-1,-1), "TOP")]), Spacer(1, 4*mm)]
 
         bank_fields = [
@@ -213,11 +217,12 @@ class PDFGenerator:
             canvas.saveState(); canvas.setFont(font, 8); canvas.setFillColor(colors.HexColor("#64748B")); canvas.drawString(12*mm, 8*mm, f"GST Smart · {invoice.company.company_name} · {invoice.invoice_number}"); canvas.drawRightString(198*mm, 8*mm, f"Page {canvas.getPageNumber()}"); canvas.restoreState()
         doc.build(story, onFirstPage=page_footer, onLaterPages=page_footer)
 
-    def _generate_minimal_pdf(self, invoice: Invoice, path: Path) -> None:
+    def _generate_minimal_pdf(self, invoice: Invoice, path: Path, invoice_data: dict) -> None:
         lines = ["TAX INVOICE", f"Invoice: {invoice.invoice_number}  Date: {invoice.invoice_date:%d-%m-%Y}", f"Seller: {invoice.company.seller_name} GSTIN: {invoice.company.gstin}", f"Buyer: {invoice.customer.customer_name}" + (f" GSTIN: {invoice.customer.gstin}" if invoice.customer.gstin else ""), "Items:"]
         for item in invoice.items:
             lines.append(f"{item.item_name} HSN:{item.hsn_sac or '-'} Qty:{item.quantity:g} Total:{item.total_amount:.2f}")
-        lines += [f"Taxable: INR {invoice.taxable_amount:.2f}", f"CGST: INR {invoice.cgst:.2f} SGST: INR {invoice.sgst:.2f} IGST: INR {invoice.igst:.2f}", f"Grand Total: INR {invoice.grand_total:.2f}", amount_to_words(invoice.grand_total), "Terms and Conditions apply.", getattr(invoice.company, "authorized_signature_name", "") or "", "Authorized Signature"]
+        totals = invoice_data["totals"]
+        lines += [f"Tax Type: {'CGST + SGST' if invoice_data['tax_type'] == 'CGST_SGST' else 'IGST'}", f"Taxable: INR {totals['taxable_amount']:.2f}", f"CGST: INR {totals['cgst']:.2f} SGST: INR {totals['sgst']:.2f} IGST: INR {totals['igst']:.2f}", f"Grand Total: INR {totals['grand_total']:.2f}", amount_to_words(totals['grand_total']), "Terms and Conditions apply.", getattr(invoice.company, "authorized_signature_name", "") or "", "Authorized Signature"]
         content = "BT /F1 10 Tf 50 800 Td " + " T* ".join(f"({line.replace('(', '[').replace(')', ']')})" for line in lines) + " ET"
         objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>", "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", f"<< /Length {len(content.encode())} >>\nstream\n{content}\nendstream"]
         pdf = "%PDF-1.4\n"; offsets = []
