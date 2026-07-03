@@ -533,8 +533,6 @@ def update_company_from_form(company: Company):
     signature = save_signature(request.files.get("signature_image"));
     if signature: company.signature_image_path = signature
     if f.get("remove_signature_image") == "1": company.signature_image_path = ""
-    if not company.company_name:
-        raise ValueError("Company name is required.")
     validate_company(company)
 
 
