@@ -4,6 +4,12 @@
   const field=(name)=>form.querySelector(`[name="${name}"]`);
   const money=(v)=>`₹${(Number(v)||0).toFixed(2)}`;
   const descriptionSuggestions=JSON.parse(form.dataset.descriptionSuggestions||'[]');
+  const isGuest=form.dataset.guest==='true';
+  const guestLimit=parseInt(form.dataset.guestLimit||'3',10);
+  const guestLimitMessage=form.dataset.guestLimitMessage||'You have created 3 free invoices. Please sign up or log in to continue.';
+  const guestStorageKey='gstsmart_guest_invoice_count';
+  const guestCount=()=>parseInt(localStorage.getItem(guestStorageKey)||'0',10)||0;
+  const showAuthRequired=(message)=>{const body=document.getElementById('upgradeModalBody'); if(body) body.textContent=message||guestLimitMessage; const modalEl=document.getElementById('upgradeModal'); if(modalEl && window.bootstrap){new bootstrap.Modal(modalEl).show();} else alert(message||guestLimitMessage);};
   const normalizeText=(value)=>(value||'').toString().trim().toLowerCase();
   const escapeHtml=(value)=>(value||'').toString().replace(/[&<>'"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
   const ONES=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
@@ -84,9 +90,8 @@
   form.querySelectorAll('[name="customer_type"]').forEach(el=>el.addEventListener('change',()=>{updateCustomerMode();recalc();}));
   form.addEventListener('submit',async(e)=>{
     if(isNewCustomer()){const required=[['new_customer_name','Customer Name']]; const missing=required.find(([name])=>!field(name)?.value.trim()); if(missing){e.preventDefault(); field(missing[0])?.focus(); alert(`${missing[1]} is required for a new customer.`); return;}}
-    const hasDescription=Array.from(form.querySelectorAll('[name="item_name[]"]')).some(input=>input.value.trim());
-    if(!hasDescription){e.preventDefault(); form.querySelector('[name="item_name[]"]')?.focus(); alert('Description is required for at least one product or service.'); return;}
     e.preventDefault();
+    if(isGuest && guestCount()>=guestLimit){showAuthRequired(guestLimitMessage); return;}
     const alertBox=document.getElementById('invoiceAlert');
     const overlay=document.getElementById('loadingOverlay');
     const submit=form.querySelector('#generatePdfBtn');
@@ -97,12 +102,11 @@
       const response=await fetch(form.action || window.location.href,{method:'POST',body:new FormData(form),headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
       const data=await response.json().catch(()=>({ok:false,message:'Unable to generate invoice.'}));
       if(response.status===403){
-        const modalEl=document.getElementById('upgradeModal');
-        if(modalEl && window.bootstrap){new bootstrap.Modal(modalEl).show();}
-        else {alert(data.message || 'Monthly invoice limit reached. Please upgrade your plan to continue creating invoices.');}
+        showAuthRequired(data.message || guestLimitMessage);
         return;
       }
       if(!response.ok || !data.ok) throw new Error(data.message || 'Unable to generate invoice.');
+      if(isGuest) localStorage.setItem(guestStorageKey, String(Math.min(guestLimit, guestCount()+1)));
       window.location.href=data.download_url;
     }catch(err){
       if(alertBox){alertBox.textContent=err.message; alertBox.className='alert alert-danger';}

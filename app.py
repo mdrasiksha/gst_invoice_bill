@@ -39,7 +39,9 @@ PRICING_PLANS = [
     {"key": "business", "name": "Business", "price": "999", "limit": "Unlimited invoices + future multi-user support", "note": "For teams preparing to scale."},
 ]
 INVOICE_LIMIT_MESSAGE = "Monthly invoice limit reached. Please upgrade your plan to continue creating invoices."
-PUBLIC_ENDPOINTS = {"landing", "about", "contact", "privacy_policy", "terms_and_conditions", "pricing", "robots_txt", "sitemap_xml", "favicon_asset"}
+PUBLIC_ENDPOINTS = {"landing", "about", "contact", "privacy_policy", "terms_and_conditions", "pricing", "robots_txt", "sitemap_xml", "favicon_asset", "create_invoice", "download_pdf", "invoice_preview", "uploaded_file"}
+GUEST_INVOICE_LIMIT = 3
+GUEST_LIMIT_MESSAGE = "You have created 3 free invoices. Please sign up or log in to continue."
 
 
 def configure_logging(app: Flask) -> None:
@@ -47,6 +49,11 @@ def configure_logging(app: Flask) -> None:
     level = os.getenv("LOG_LEVEL", "INFO").upper()
     logging.basicConfig(level=level, stream=sys.stdout, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
     app.logger.setLevel(level)
+
+
+def guest_company() -> Company:
+    """Return a lightweight seller profile for visitors trying invoice generation."""
+    return Company(company_name="GST Smart", gstin="", address="", city="", state="", pin_code="")
 
 
 def default_company_for_user(user: User) -> Company:
@@ -393,7 +400,7 @@ def build_new_invoice_customer(form) -> Customer:
         raise ValueError("Customer email is invalid.")
 
     return Customer(
-        company_id=current_user.company_id,
+        company_id=current_user.company_id if current_user.is_authenticated else None,
         customer_name=values["new_customer_name"],
         gstin=gstin,
         phone=phone,
@@ -526,8 +533,8 @@ def update_company_from_form(company: Company):
     signature = save_signature(request.files.get("signature_image"));
     if signature: company.signature_image_path = signature
     if f.get("remove_signature_image") == "1": company.signature_image_path = ""
-    if not all([company.company_name, company.gstin, company.address, company.city, company.state, company.pin_code]):
-        raise ValueError("Company name, GSTIN, address, city, state and PIN code are required.")
+    if not company.company_name:
+        raise ValueError("Company name is required.")
     validate_company(company)
 
 
@@ -615,7 +622,7 @@ def register():
             db.session.add_all([company, user]); db.session.commit()
         except IntegrityError:
             db.session.rollback(); flash("Email already registered.", "danger"); return redirect(url_for("register"))
-        login_user(user); flash("Account created. Complete your company profile.", "success"); return redirect(url_for("company_setup"))
+        login_user(user); flash("Account created. You can create your first invoice now.", "success"); return redirect(url_for("create_invoice"))
     return render_template("auth/register.html")
 
 @app.route("/login", methods=["GET", "POST"])
@@ -627,7 +634,7 @@ def login():
         if user and user.check_password(request.form.get("password", "")):
             remember = bool(request.form.get("remember"))
             login_user(user, remember=remember)
-            resp = make_response(redirect(url_for("dashboard")))
+            resp = make_response(redirect(url_for("create_invoice")))
             if remember:
                 resp.set_cookie("remembered_email", email, max_age=60*60*24*365, httponly=True, samesite="Lax", secure=current_app_config_secure())
             else:
@@ -767,17 +774,21 @@ def customer_delete(customer_id):
     return redirect(url_for("customers"))
 
 @app.route("/uploads/<path:filename>")
-@login_required
 def uploaded_file(filename):
     return send_from_directory(BASE_DIR / "uploads", filename)
 
 @app.route("/invoice/new", methods=["GET", "POST"])
-@login_required
 def create_invoice():
     if request.method == "POST":
         wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest" or "application/json" in request.headers.get("Accept", "")
         try:
-            if invoice_limit_reached(current_user):
+            is_guest = not current_user.is_authenticated
+            if is_guest and int(session.get("guest_invoice_count", 0)) >= GUEST_INVOICE_LIMIT:
+                if wants_json:
+                    return jsonify({"ok": False, "message": GUEST_LIMIT_MESSAGE, "auth_required": True}), 403
+                flash(GUEST_LIMIT_MESSAGE, "danger")
+                return redirect(url_for("login"))
+            if (not is_guest) and invoice_limit_reached(current_user):
                 if wants_json:
                     return jsonify({"ok": False, "message": INVOICE_LIMIT_MESSAGE}), 403
                 flash(INVOICE_LIMIT_MESSAGE, "danger")
@@ -786,14 +797,21 @@ def create_invoice():
             if customer_type == "new":
                 customer = build_new_invoice_customer(request.form)
                 if request.form.get("save_customer"):
-                    db.session.add(customer)
+                    if not is_guest:
+                        db.session.add(customer)
             else:
                 customer_id = request.form.get("customer_id", type=int)
                 if not customer_id:
                     raise ValueError("Customer selection is required for an existing customer.")
                 customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first_or_404()
-            customer_state = normalize_state_name(customer.state) or normalize_state_name(current_user.company.state)
-            supply_code = state_code_from_state(customer_state) or (current_user.company.state_code or "").strip().zfill(2)
+            company = guest_company() if is_guest else current_user.company
+            if is_guest:
+                db.session.add(company)
+                db.session.flush()
+                customer.company_id = company.id
+                db.session.add(customer)
+            customer_state = normalize_state_name(customer.state) or normalize_state_name(company.state)
+            supply_code = state_code_from_state(customer_state) or (company.state_code or "").strip().zfill(2)
             # Treat the submitted state code as a helper/autofill value only.
             # A stale or manually mistyped code should not block invoice creation;
             # the authoritative code comes from the selected customer state.
@@ -801,7 +819,8 @@ def create_invoice():
             customer.state_code = supply_code
             invoice_date = parse_required_date(request.form.get("invoice_date") or date.today().isoformat(), "Invoice date")
             due_date = parse_required_date(request.form.get("due_date") or invoice_date.isoformat(), "Due date")
-            inv=Invoice(company=current_user.company, customer=customer, created_by_user_id=current_user.id, invoice_number=request.form.get("invoice_number") or next_invoice_number(current_user.company_id), invoice_date=invoice_date, due_date=due_date, place_of_supply=customer_state, state_code=supply_code)
+            invoice_number = request.form.get("invoice_number") or (f"GUEST-{date.today().year}-{int(session.get('guest_invoice_count', 0)) + 1:04d}" if is_guest else next_invoice_number(current_user.company_id))
+            inv=Invoice(company=company, customer=customer, created_by_user_id=None if is_guest else current_user.id, invoice_number=invoice_number, invoice_date=invoice_date, due_date=due_date, place_of_supply=customer_state, state_code=supply_code)
             setattr(inv, "terms", request.form.get("terms", "").strip())
             hsn_values=request.form.getlist("hsn_sac[]"); qty_values=request.form.getlist("quantity[]"); price_values=request.form.getlist("unit_price[]"); gst_values=request.form.getlist("gst_percentage[]")
             for idx,name in enumerate(request.form.getlist("item_name[]")):
@@ -811,25 +830,45 @@ def create_invoice():
                 gst_percentage = parse_gst_rate(gst_values[idx]) if idx < len(gst_values) and gst_values[idx].strip() else 0.0
                 item=InvoiceItem(item_name=name.strip(), hsn_sac=hsn_values[idx].strip() if idx < len(hsn_values) else "", quantity=quantity, unit_price=unit_price, gst_percentage=gst_percentage)
                 validate_item(item); inv.items.append(item)
-            if not inv.items: raise ValueError("Add at least one product or service row.")
-            validate_invoice_dates(inv.invoice_date, inv.due_date); calculate_invoice(inv); db.session.add(inv); db.session.flush(); inv.pdf_path=pdf.generate(inv); remember_description_suggestions(current_user.id, inv.items); db.session.commit(); logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
+            if not inv.items:
+                inv.items.append(InvoiceItem(item_name="Item", hsn_sac="", quantity=1.0, unit_price=0.0, gst_percentage=0.0))
+            validate_invoice_dates(inv.invoice_date, inv.due_date); calculate_invoice(inv); db.session.add(inv); db.session.flush(); inv.pdf_path=pdf.generate(inv);
+            if not is_guest:
+                remember_description_suggestions(current_user.id, inv.items)
+            db.session.commit()
+            if is_guest:
+                guest_ids = session.setdefault("guest_invoice_ids", [])
+                guest_ids.append(inv.id)
+                session["guest_invoice_ids"] = guest_ids[-GUEST_INVOICE_LIMIT:]
+                session["guest_invoice_count"] = int(session.get("guest_invoice_count", 0)) + 1
+                session.modified = True
+            logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path, "guest": is_guest})
             if wants_json:
                 return jsonify({"ok": True, "message": f"Invoice {inv.invoice_number} generated successfully.", "download_url": url_for("download_pdf", invoice_id=inv.id), "filename": f"{inv.invoice_number}.pdf"})
             flash(f"Invoice {inv.invoice_number} saved.", "success"); return redirect(url_for("download_pdf", invoice_id=inv.id))
         except Exception as exc:
-            db.session.rollback(); logger.exception("Invoice generation failed", extra={"user_id": current_user.id})
+            db.session.rollback(); logger.exception("Invoice generation failed", extra={"user_id": current_user.id if current_user.is_authenticated else None, "guest": not current_user.is_authenticated})
             message = friendly_invoice_error(exc)
             if wants_json:
                 return jsonify({"ok": False, "message": message}), 400
             flash(message, "danger")
-    defaults={"invoice_number":next_invoice_number(current_user.company_id),"invoice_date":date.today().isoformat(),"due_date":(date.today()+timedelta(days=15)).isoformat()}
-    return render_template("create_invoice.html", company=current_user.company, customers=Customer.query.filter_by(company_id=current_user.company_id).order_by(Customer.customer_name.asc(), Customer.id.asc()).all(), defaults=defaults, gst_rates=ALLOWED_GST_RATES, indian_states=INDIAN_STATE_CODES, description_suggestions=user_description_suggestions(current_user.id), amount_to_words=amount_to_words)
+    if current_user.is_authenticated:
+        company = ensure_user_company(current_user)
+        invoice_number = next_invoice_number(current_user.company_id)
+        customers = Customer.query.filter_by(company_id=current_user.company_id).order_by(Customer.customer_name.asc(), Customer.id.asc()).all()
+        suggestions = user_description_suggestions(current_user.id)
+    else:
+        company = guest_company()
+        invoice_number = f"GUEST-{date.today().year}-{int(session.get('guest_invoice_count', 0)) + 1:04d}"
+        customers = []
+        suggestions = []
+    defaults={"invoice_number":invoice_number,"invoice_date":date.today().isoformat(),"due_date":(date.today()+timedelta(days=15)).isoformat()}
+    return render_template("create_invoice.html", company=company, customers=customers, defaults=defaults, gst_rates=ALLOWED_GST_RATES, indian_states=INDIAN_STATE_CODES, description_suggestions=suggestions, amount_to_words=amount_to_words, guest_invoice_limit=GUEST_INVOICE_LIMIT, guest_limit_message=GUEST_LIMIT_MESSAGE)
 
 @app.route("/invoice/<int:invoice_id>")
 @app.route("/invoice/view/<int:invoice_id>")
-@login_required
 def invoice_preview(invoice_id):
-    inv = scoped_invoice(invoice_id)
+    inv = scoped_invoice(invoice_id) if current_user.is_authenticated else (Invoice.query.get(invoice_id) if invoice_id in session.get("guest_invoice_ids", []) else None)
     if not inv:
         flash("Invoice not found or you do not have access to it.", "warning")
         return redirect(url_for("dashboard"))
@@ -839,9 +878,8 @@ def invoice_preview(invoice_id):
     return render_template("invoice_preview.html", **invoice_view_context(inv))
 
 @app.route("/invoice/<int:invoice_id>/pdf")
-@login_required
 def download_pdf(invoice_id):
-    inv = scoped_invoice(invoice_id)
+    inv = scoped_invoice(invoice_id) if current_user.is_authenticated else (Invoice.query.get(invoice_id) if invoice_id in session.get("guest_invoice_ids", []) else None)
     if not inv:
         flash("Invoice not found or you do not have access to it.", "warning")
         return redirect(url_for("dashboard"))
