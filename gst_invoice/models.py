@@ -80,6 +80,7 @@ class User(UserMixin, db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_admin = db.Column(db.Boolean, nullable=False, default=False)
     plan = db.Column(db.String(20), nullable=False, default="free")
+    company_setup_completed = db.Column(db.Boolean, nullable=False, default=True)
     company = db.relationship("Company", back_populates="users")
 
     def set_password(self, password: str) -> None: self.password_hash = generate_password_hash(password)

@@ -117,8 +117,8 @@ def create_app() -> Flask:
             if not token or token != request.form.get("csrf_token"):
                 abort(400, "Invalid CSRF token")
         if current_user.is_authenticated and request.endpoint not in PUBLIC_ENDPOINTS | {"logout", "company_setup", "static", "uploaded_file", "admin_index", "admin_dashboard"}:
-            company = ensure_user_company(current_user)
-            if not company.profile_complete:
+            ensure_user_company(current_user)
+            if not getattr(current_user, "company_setup_completed", False):
                 return redirect(url_for("company_setup"))
 
     @app.context_processor
@@ -200,8 +200,12 @@ def ensure_database_columns() -> None:
             else:
                 conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
+        existing_user_columns = columns("users")
         add_column("users", "is_admin", "BOOLEAN NOT NULL DEFAULT FALSE" if dialect == "postgresql" else "INTEGER NOT NULL DEFAULT 0")
         add_column("users", "plan", "VARCHAR(20) NOT NULL DEFAULT 'free'")
+        add_column("users", "company_setup_completed", "BOOLEAN NOT NULL DEFAULT TRUE" if dialect == "postgresql" else "INTEGER NOT NULL DEFAULT 1")
+        if "company_setup_completed" not in existing_user_columns:
+            conn.exec_driver_sql("UPDATE users SET company_setup_completed = TRUE" if dialect == "postgresql" else "UPDATE users SET company_setup_completed = 1")
         add_column("password_reset_tokens", "used_at", "TIMESTAMP")
         for name, ddl in {
             "city": "VARCHAR(80) DEFAULT ''",
@@ -512,7 +516,7 @@ def send_reset_email(user: User, token: str) -> bool:
         return False
 
 
-def update_company_from_form(company: Company):
+def update_company_from_form(company: Company, *, validate: bool = True):
     f = request.form
     company.company_name=f.get("company_name", "").strip(); company.gstin=f.get("gstin", "").strip().upper()
     company.address=f.get("address", "").strip(); company.city=f.get("city", "").strip(); company.state=normalize_state_name(f.get("state", "")); company.pin_code=f.get("pin_code", "").strip()
@@ -533,9 +537,16 @@ def update_company_from_form(company: Company):
     signature = save_signature(request.files.get("signature_image"));
     if signature: company.signature_image_path = signature
     if f.get("remove_signature_image") == "1": company.signature_image_path = ""
-    if not company.company_name:
-        raise ValueError("Company name is required.")
-    validate_company(company)
+    if validate:
+        if not company.company_name:
+            raise ValueError("Company name is required.")
+        validate_company(company)
+    elif company.gstin and not validate_gstin(company.gstin, optional=True):
+        raise ValueError("Company GSTIN is invalid.")
+    elif company.phone and not validate_phone(company.phone):
+        raise ValueError("Company phone number is invalid.")
+    elif company.email and not validate_email(company.email):
+        raise ValueError("Company email is invalid.")
 
 
 
@@ -616,13 +627,13 @@ def register():
             flash("Email is required.", "danger"); return redirect(url_for("register"))
         if User.query.filter_by(email=email).first(): flash("Email already registered.", "danger"); return redirect(url_for("register"))
         if len(password) < 8: flash("Password must be at least 8 characters.", "danger"); return redirect(url_for("register"))
-        company = Company(company_name=request.form.get("company_name", "New Company").strip() or "New Company", gstin="", address="")
-        user = User(username=request.form.get("username", email).strip(), email=email, company=company); user.set_password(password)
+        company = Company(company_name=request.form.get("company_name", "").strip(), gstin="", address="")
+        user = User(username=request.form.get("username", email).strip(), email=email, company=company, company_setup_completed=False); user.set_password(password)
         try:
             db.session.add_all([company, user]); db.session.commit()
         except IntegrityError:
             db.session.rollback(); flash("Email already registered.", "danger"); return redirect(url_for("register"))
-        login_user(user); flash("Account created. You can create your first invoice now.", "success"); return redirect(url_for("create_invoice"))
+        login_user(user); flash("Account created. Add company details now, or skip and create your first invoice.", "success"); return redirect(url_for("company_setup"))
     return render_template("auth/register.html")
 
 @app.route("/login", methods=["GET", "POST"])
@@ -728,10 +739,25 @@ def dashboard():
 @app.route("/settings", methods=["GET", "POST"])
 @login_required
 def company_setup():
+    company = ensure_user_company(current_user)
+    is_wizard = request.path == url_for("company_setup") and not getattr(current_user, "company_setup_completed", False)
     if request.method == "POST":
-        try: update_company_from_form(ensure_user_company(current_user)); db.session.commit(); flash("Company profile saved.", "success"); return redirect(url_for("dashboard"))
-        except Exception as exc: db.session.rollback(); flash(str(exc), "danger")
-    return render_template("settings.html", company=ensure_user_company(current_user), indian_states=INDIAN_STATE_CODES)
+        try:
+            if request.form.get("action") == "skip":
+                current_user.company_setup_completed = True
+                db.session.add(current_user)
+                db.session.commit()
+                flash("Company setup skipped. You can update it later from Company Settings.", "info")
+                return redirect(url_for("create_invoice"))
+            update_company_from_form(company, validate=not is_wizard)
+            current_user.company_setup_completed = True
+            db.session.add(current_user)
+            db.session.commit()
+            flash("Company profile saved.", "success")
+            return redirect(url_for("create_invoice") if is_wizard else url_for("dashboard"))
+        except Exception as exc:
+            db.session.rollback(); flash(str(exc), "danger")
+    return render_template("settings.html", company=company, indian_states=INDIAN_STATE_CODES, is_wizard=is_wizard)
 
 @app.route("/customers")
 @login_required

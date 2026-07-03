@@ -94,10 +94,11 @@
     if(isGuest && guestCount()>=guestLimit){showAuthRequired(guestLimitMessage); return;}
     const alertBox=document.getElementById('invoiceAlert');
     const overlay=document.getElementById('loadingOverlay');
-    const submit=form.querySelector('#generatePdfBtn');
+    const submitButtons=Array.from(form.querySelectorAll('.generate-pdf-submit'));
+    const submit=submitButtons[0];
     alertBox?.classList.add('d-none');
     overlay?.classList.remove('d-none');
-    if(submit) submit.disabled=true;
+    submitButtons.forEach(btn=>{btn.disabled=true; btn.dataset.originalHtml=btn.innerHTML; btn.innerHTML='<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Generating PDF...';});
     try{
       const response=await fetch(form.action || window.location.href,{method:'POST',body:new FormData(form),headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
       const data=await response.json().catch(()=>({ok:false,message:'Unable to generate invoice.'}));
@@ -113,7 +114,7 @@
       else alert(err.message);
     }finally{
       overlay?.classList.add('d-none');
-      if(submit) submit.disabled=false;
+      submitButtons.forEach(btn=>{btn.disabled=false; if(btn.dataset.originalHtml) btn.innerHTML=btn.dataset.originalHtml;});
     }
   });
   document.addEventListener('click',e=>{if(!e.target.closest('.description-suggest-wrap')) closeDescriptionSuggestions();});
