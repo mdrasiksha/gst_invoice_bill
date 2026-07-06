@@ -135,6 +135,8 @@ def create_app() -> Flask:
     @app.route("/favicon.ico")
     @app.route("/favicon-16x16.png")
     @app.route("/favicon-32x32.png")
+    @app.route("/favicon-48x48.png")
+    @app.route("/favicon-192x192.png")
     @app.route("/apple-touch-icon.png")
     @app.route("/android-chrome-192x192.png")
     @app.route("/android-chrome-512x512.png")
