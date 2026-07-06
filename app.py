@@ -136,13 +136,21 @@ def create_app() -> Flask:
     @app.route("/favicon-16x16.png")
     @app.route("/favicon-32x32.png")
     @app.route("/favicon-48x48.png")
+    @app.route("/favicon-96x96.png")
     @app.route("/favicon-192x192.png")
+    @app.route("/favicon-512x512.png")
     @app.route("/apple-touch-icon.png")
     @app.route("/android-chrome-192x192.png")
     @app.route("/android-chrome-512x512.png")
     @app.route("/site.webmanifest")
     def favicon_asset():
-        return send_from_directory(BASE_DIR / "static", request.path.lstrip("/"))
+        filename = request.path.lstrip("/")
+        mimetypes = {
+            ".ico": "image/x-icon",
+            ".png": "image/png",
+            ".webmanifest": "application/manifest+json",
+        }
+        return send_from_directory(BASE_DIR / "static", filename, mimetype=mimetypes.get(Path(filename).suffix))
 
     @app.cli.command("create-admin")
     @click.option("--email", required=True, help="Admin email address.")
