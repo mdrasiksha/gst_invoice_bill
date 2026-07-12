@@ -493,8 +493,8 @@ def build_new_invoice_customer(form) -> Customer:
     gstin = form.get("new_customer_gstin", "").strip().upper()
     phone = form.get("new_customer_phone", "").strip()
     email = form.get("new_customer_email", "").strip()
-    if not validate_gstin(gstin, optional=True):
-        raise ValueError("Customer GSTIN is invalid.")
+    if gstin and not validate_gstin(gstin):
+        raise ValueError("Invalid customer GSTIN.")
     if phone and not validate_phone(phone):
         raise ValueError("Customer phone number is invalid.")
     if email and not validate_email(email):
@@ -533,18 +533,23 @@ def guest_limit_payload() -> dict:
 
 
 def build_guest_company(form) -> Company:
-    gstin = (form.get("company_gstin") or "").strip().upper()
+    company_name = (form.get("company_name") or "Your Company").strip()
+    raw_gstin = (form.get("company_gstin") or "").strip()
+    # Browser autofill can occasionally place the company name into the GSTIN
+    # input. GSTIN is optional, so treat that exact field-mapping error as
+    # blank instead of validating the company name as a GSTIN.
+    gstin = "" if raw_gstin.casefold() == company_name.casefold() else raw_gstin.upper()
     phone = (form.get("company_phone") or "").strip()
     email = (form.get("company_email") or "").strip()
-    if not validate_gstin(gstin, optional=True):
-        raise ValueError("Company GSTIN is invalid.")
+    if gstin and not validate_gstin(gstin):
+        raise ValueError("Invalid company GSTIN.")
     if phone and not validate_phone(phone):
         raise ValueError("Company phone number is invalid.")
     if email and not validate_email(email):
         raise ValueError("Company email is invalid.")
     state = normalize_state_name(form.get("company_state", "")) or DEFAULT_SUPPLIER_STATE
     company = Company(
-        company_name=(form.get("company_name") or "Your Company").strip(),
+        company_name=company_name,
         gstin=gstin,
         address=(form.get("company_address") or "").strip(),
         city=(form.get("company_city") or "").strip(),
