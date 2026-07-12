@@ -794,3 +794,34 @@ def test_guest_invoice_response_is_not_persisted_and_offers_optional_signup(clie
     with client.session_transaction() as sess:
         assert "guest_pdf_path" not in sess
         assert "guest_pdf_filename" not in sess
+
+def test_guest_company_name_is_not_validated_as_company_gstin(client):
+    payload = guest_invoice_payload(csrf(client), "GUEST-NAME-GSTIN")
+    payload["company_name"] = "SALMAN ENGINEERING"
+    payload["company_gstin"] = "SALMAN ENGINEERING"
+    payload["gst_percentage[]"] = ["12.0"]
+
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data=payload)
+
+    assert rv.status_code == 200
+    assert rv.json["ok"] is True
+    assert rv.json["guest"] is True
+
+
+def test_guest_optional_customer_gstin_validates_only_when_present(client):
+    payload = guest_invoice_payload(csrf(client), "GUEST-BLANK-GSTIN")
+    payload["company_gstin"] = ""
+    payload["new_customer_gstin"] = ""
+    payload["gst_percentage[]"] = ["12.0"]
+
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data=payload)
+
+    assert rv.status_code == 200
+    assert rv.json["ok"] is True
+
+    bad = guest_invoice_payload(csrf(client), "GUEST-BAD-CUST-GSTIN")
+    bad["new_customer_gstin"] = "NOT-A-GSTIN"
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data=bad)
+
+    assert rv.status_code == 400
+    assert rv.json["message"] == "Invalid GST number or GST rate. Please check the GST details."
