@@ -676,3 +676,87 @@ def test_existing_user_saved_company_settings_uses_shared_tax_data_for_preview_a
     assert preview_data["cgst_amount"] == 0.0
     assert preview_data["sgst_amount"] == 0.0
     assert captured[-1]["totals"] == preview_data["totals"]
+
+
+def guest_invoice_payload(csrf_token, invoice_number="GUEST-TEST-1"):
+    return {
+        "csrf_token": csrf_token,
+        "company_name": "Guest Co",
+        "company_gstin": "",
+        "company_address": "Guest Addr",
+        "company_city": "Bengaluru",
+        "company_state": "Karnataka",
+        "company_pincode": "560001",
+        "company_phone": "9999999999",
+        "company_email": "guest@example.com",
+        "bank_name": "Guest Bank",
+        "account_number": "123456789",
+        "ifsc": "ABCD0123456",
+        "upi_id": "guest@upi",
+        "authorized_signature_name": "Guest Owner",
+        "customer_type": "new",
+        "new_customer_name": "Guest Buyer",
+        "new_customer_address": "Buyer Addr",
+        "new_customer_state": "Karnataka",
+        "invoice_number": invoice_number,
+        "invoice_date": "2026-07-12",
+        "due_date": "2026-07-27",
+        "item_name[]": ["Service"],
+        "hsn_sac[]": ["9983"],
+        "quantity[]": ["1"],
+        "unit_price[]": ["100"],
+        "gst_percentage[]": ["18.0"],
+        "terms": "Thanks",
+    }
+
+
+def test_guest_can_open_invoice_page_without_login(client):
+    rv = client.get('/invoice/new')
+    assert rv.status_code == 200
+    assert b'Create up to 3 invoices free. No signup required.' in rv.data
+    assert b'Your Company Details' in rv.data
+
+
+def test_guest_invoice_pdf_limit_counts_only_successful_generations(client):
+    with app.app_context():
+        assert Invoice.query.count() == 0
+    bad = guest_invoice_payload(csrf(client), "GUEST-FAIL")
+    bad["item_name[]"] = [""]
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data=bad)
+    assert rv.status_code == 400
+    with client.session_transaction() as sess:
+        assert sess.get("guest_invoice_count", 0) == 0
+
+    for idx in range(1, 4):
+        rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data=guest_invoice_payload(csrf(client), f"GUEST-OK-{idx}"))
+        assert rv.status_code == 200
+        assert rv.json["ok"] is True
+        pdf = client.get(rv.json["download_url"])
+        assert pdf.status_code == 200
+        assert pdf.headers["Content-Type"].startswith("application/pdf")
+        with client.session_transaction() as sess:
+            assert sess["guest_invoice_count"] == idx
+
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data=guest_invoice_payload(csrf(client), "GUEST-BLOCKED"))
+    assert rv.status_code == 403
+    assert rv.json["message"] == "You have created 3 free invoices. Create a free account to continue generating invoices and save your invoice history."
+    assert "/register?next=/invoice/new" in rv.json["signup_url"]
+    assert "/login?next=/invoice/new" in rv.json["login_url"]
+    with app.app_context():
+        assert Invoice.query.count() == 0
+
+
+def test_logged_in_user_generation_does_not_increment_guest_counter(client):
+    login(client)
+    payload = guest_invoice_payload(csrf(client), "INV-LOGGED-IN")
+    payload.pop("company_name")
+    rv = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data=payload)
+    assert rv.status_code == 200
+    assert rv.json["ok"] is True
+    with client.session_transaction() as sess:
+        assert sess.get("guest_invoice_count") is None
+
+
+def test_dashboard_and_settings_still_require_login(client):
+    assert client.get('/dashboard').status_code == 302
+    assert client.get('/settings').status_code == 302
