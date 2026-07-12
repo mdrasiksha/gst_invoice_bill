@@ -7,6 +7,32 @@
   <div class="col-md-3"><div class="metric-card"><span>Total Invoices</span><strong>{{ stats.invoices }}</strong></div></div>
   <div class="col-md-3"><div class="metric-card"><span>Invoices This Month</span><strong>{{ stats.monthly_invoices }}</strong></div></div>
 </div>
+
+<div class="card app-card mb-4">
+  <div class="card-header d-flex flex-column flex-lg-row justify-content-between gap-3">
+    <div><h2 class="h5 mb-0">User Conversion Funnel</h2><small class="text-muted">{{ funnel_start }} to {{ funnel_end }}</small></div>
+    <form class="row g-2 align-items-end" method="get">
+      <div class="col-auto"><label class="form-label small mb-1">Range</label><select class="form-select form-select-sm" name="range"><option value="today" {% if funnel_range == 'today' %}selected{% endif %}>Today</option><option value="last_7_days" {% if funnel_range == 'last_7_days' %}selected{% endif %}>Last 7 days</option><option value="last_30_days" {% if funnel_range == 'last_30_days' %}selected{% endif %}>Last 30 days</option><option value="this_month" {% if funnel_range == 'this_month' %}selected{% endif %}>This month</option><option value="custom" {% if funnel_range == 'custom' %}selected{% endif %}>Custom date range</option></select></div>
+      <div class="col-auto"><label class="form-label small mb-1">Start</label><input class="form-control form-control-sm" type="date" name="start_date" value="{{ funnel_start }}"></div>
+      <div class="col-auto"><label class="form-label small mb-1">End</label><input class="form-control form-control-sm" type="date" name="end_date" value="{{ funnel_end }}"></div>
+      <div class="col-auto"><button class="btn btn-sm btn-primary">Apply</button></div>
+    </form>
+  </div>
+  <div class="card-body">
+    <div class="row g-3 mb-4">
+      <div class="col-md-3"><div class="metric-card h-100"><span>Visitor-to-PDF Conversion</span><strong>{{ '%.1f'|format(funnel.summary.visitor_to_pdf) }}%</strong></div></div>
+      <div class="col-md-3"><div class="metric-card h-100"><span>PDF-to-Signup Conversion</span><strong>{{ '%.1f'|format(funnel.summary.pdf_to_signup) }}%</strong></div></div>
+      <div class="col-md-3"><div class="metric-card h-100"><span>Visitor-to-Signup Conversion</span><strong>{{ '%.1f'|format(funnel.summary.visitor_to_signup) }}%</strong></div></div>
+      <div class="col-md-3"><div class="metric-card h-100"><span>Returning User Rate</span><strong>{{ '%.1f'|format(funnel.summary.returning_user_rate) }}%</strong></div></div>
+    </div>
+    <div class="row g-3">
+      {% for stage in funnel.stages %}
+      <div class="col-sm-6 col-xl-3"><div class="metric-card h-100 funnel-card"><span>{{ stage.label }}</span><strong>{{ stage.count }}</strong><small class="d-block text-muted">{{ '%.1f'|format(stage.prev_pct) }}% from previous</small><small class="d-block text-muted">{{ '%.1f'|format(stage.drop_pct) }}% drop-off</small><small class="d-block text-muted">{{ '%.1f'|format(stage.overall_pct) }}% overall</small></div></div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
 <div class="row g-4 mb-4">
   <div class="col-lg-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h5 mb-0">Latest Registered Users</h2></div><div class="card-body"><div class="table-responsive"><table class="table align-middle"><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Company</th><th>Plan</th><th>Role</th><th>Joined</th></tr></thead><tbody>{% for user in latest_users %}<tr><td>{{ user.id }}</td><td>{{ user.username }}</td><td>{{ user.email }}</td><td>{{ user.company.phone if user.company and user.company.phone else '-' }}</td><td>{{ user.company.company_name if user.company else 'Missing company' }}</td><td><span class="badge text-bg-info text-uppercase">{{ user.plan or 'free' }}</span></td><td>{% if user.is_admin %}<span class="badge text-bg-primary">Admin</span>{% else %}<span class="badge text-bg-secondary">User</span>{% endif %}</td><td>{{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '-' }}</td></tr>{% else %}<tr><td colspan="8" class="text-center text-muted py-4">No users found.</td></tr>{% endfor %}</tbody></table></div></div></div></div>
   <div class="col-lg-6"><div class="card app-card h-100"><div class="card-header"><h2 class="h5 mb-0">Latest Invoices</h2></div><div class="card-body"><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Invoice</th><th>Company</th><th>Customer</th><th>User</th><th>Total</th><th>Created</th></tr></thead><tbody>{% for invoice in latest_invoices %}<tr><td>{{ invoice.invoice_number }}</td><td>{{ invoice.company.company_name if invoice.company else '-' }}</td><td>{{ invoice.customer.customer_name if invoice.customer else '-' }}</td><td>{{ invoice.created_by_user.email if invoice.created_by_user else '-' }}</td><td>₹{{ '%.2f'|format(invoice.grand_total or 0) }}</td><td>{{ invoice.created_at.strftime('%Y-%m-%d') if invoice.created_at else '-' }}</td></tr>{% else %}<tr><td colspan="6" class="text-center text-muted py-4">No invoices found.</td></tr>{% endfor %}</tbody></table></div></div></div></div>

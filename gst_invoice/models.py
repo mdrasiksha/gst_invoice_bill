@@ -12,6 +12,20 @@ from .utils import state_code_from_gstin
 db = SQLAlchemy()
 
 
+
+
+class AnalyticsEvent(db.Model):
+    __tablename__ = "analytics_events"
+    id = db.Column(db.Integer, primary_key=True)
+    event_name = db.Column(db.String(80), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    session_id = db.Column(db.String(80), nullable=True, index=True)
+    guest_id = db.Column(db.String(80), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    event_date = db.Column(db.Date, default=date.today, nullable=False, index=True)
+    metadata_json = db.Column(db.Text, nullable=True)
+    user = db.relationship("User")
+
 class Company(db.Model):
     __tablename__ = "companies"
     id = db.Column(db.Integer, primary_key=True)
