@@ -760,3 +760,37 @@ def test_logged_in_user_generation_does_not_increment_guest_counter(client):
 def test_dashboard_and_settings_still_require_login(client):
     assert client.get('/dashboard').status_code == 302
     assert client.get('/settings').status_code == 302
+
+
+def test_landing_get_started_free_goes_directly_to_guest_invoice(client):
+    rv = client.get('/')
+    assert rv.status_code == 200
+    assert b'Get Started Free' in rv.data
+    assert b'href="/invoice/new"' in rv.data
+    assert b'href="/register">Get Started Free' not in rv.data
+
+
+def test_guest_invoice_response_is_not_persisted_and_offers_optional_signup(client):
+    rv = client.get('/invoice/new')
+    assert rv.status_code == 200
+    assert b'Your Company Details' in rv.data
+    assert b'Customer' in rv.data
+    assert b'Invoice Details' in rv.data
+    assert b'Invoice Items' in rv.data
+    assert b'Payment and Terms' in rv.data
+    assert b'Invoice created successfully. Create a free account only if you want to save your company details and invoice history.' in rv.data
+    payload = guest_invoice_payload(csrf(client), "GUEST-NOSAVE")
+    post = client.post('/invoice/new', headers={"X-Requested-With": "XMLHttpRequest"}, data=payload)
+    assert post.status_code == 200
+    assert post.json["ok"] is True
+    assert post.json["guest"] is True
+    assert post.json["download_url"] == "/invoice/guest/pdf"
+    with app.app_context():
+        assert Invoice.query.count() == 0
+        assert Customer.query.count() == 0
+    pdf = client.get(post.json["download_url"])
+    assert pdf.status_code == 200
+    assert pdf.headers["Content-Type"].startswith("application/pdf")
+    with client.session_transaction() as sess:
+        assert "guest_pdf_path" not in sess
+        assert "guest_pdf_filename" not in sess
