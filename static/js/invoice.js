@@ -121,7 +121,19 @@
         return;
       }
       if(!response.ok || !data.ok) throw new Error(data.message || 'Unable to generate invoice.');
-      window.location.href=data.download_url;
+      if(data.guest){
+        const link=document.createElement('a');
+        link.href=data.download_url;
+        link.download=data.filename||'invoice.pdf';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        const modalEl=document.getElementById('guestSuccessModal');
+        if(modalEl && window.bootstrap){new bootstrap.Modal(modalEl).show();}
+        else if(alertBox){alertBox.textContent='Invoice created successfully. Create a free account only if you want to save your company details and invoice history.'; alertBox.className='alert alert-success';}
+      } else {
+        window.location.href=data.download_url;
+      }
     }catch(err){
       if(alertBox){alertBox.textContent=err.message; alertBox.className='alert alert-danger';}
       else alert(err.message);

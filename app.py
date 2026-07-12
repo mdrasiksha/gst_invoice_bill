@@ -533,16 +533,25 @@ def guest_limit_payload() -> dict:
 
 
 def build_guest_company(form) -> Company:
+    gstin = (form.get("company_gstin") or "").strip().upper()
+    phone = (form.get("company_phone") or "").strip()
+    email = (form.get("company_email") or "").strip()
+    if not validate_gstin(gstin, optional=True):
+        raise ValueError("Company GSTIN is invalid.")
+    if phone and not validate_phone(phone):
+        raise ValueError("Company phone number is invalid.")
+    if email and not validate_email(email):
+        raise ValueError("Company email is invalid.")
     state = normalize_state_name(form.get("company_state", "")) or DEFAULT_SUPPLIER_STATE
     company = Company(
         company_name=(form.get("company_name") or "Your Company").strip(),
-        gstin=(form.get("company_gstin") or "").strip().upper(),
+        gstin=gstin,
         address=(form.get("company_address") or "").strip(),
         city=(form.get("company_city") or "").strip(),
         state=state,
         pin_code=(form.get("company_pincode") or "").strip(),
-        phone=(form.get("company_phone") or "").strip(),
-        email=(form.get("company_email") or "").strip(),
+        phone=phone,
+        email=email,
         bank_name=(form.get("bank_name") or "").strip(),
         account_number=(form.get("account_number") or "").strip(),
         ifsc=(form.get("ifsc") or "").strip().upper(),
@@ -971,6 +980,8 @@ def create_invoice():
                     raise ValueError("Customer selection is required for an existing customer.")
                 customer = Customer.query.filter_by(id=customer_id, company_id=current_user.company_id).first_or_404()
             customer_state = normalize_state_name(customer.state) or normalize_state_name(company.state)
+            if is_guest:
+                customer_state = normalize_state_name(request.form.get("place_of_supply", "")) or customer_state
             supply_code = state_code_from_state(customer_state) or (company.state_code or "").strip().zfill(2)
             # Treat the submitted state code as a helper/autofill value only.
             # A stale or manually mistyped code should not block invoice creation;
@@ -1004,7 +1015,7 @@ def create_invoice():
                 session.modified = True
                 logger.info("Generated guest invoice PDF", extra={"invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
                 if wants_json:
-                    return jsonify({"ok": True, "message": f"Invoice {inv.invoice_number} generated successfully.", "download_url": url_for("download_guest_pdf"), "filename": f"{inv.invoice_number}.pdf", "remaining": guest_invoices_remaining()})
+                    return jsonify({"ok": True, "message": f"Invoice {inv.invoice_number} generated successfully.", "download_url": url_for("download_guest_pdf"), "filename": f"{inv.invoice_number}.pdf", "remaining": guest_invoices_remaining(), "guest": True})
                 flash(f"Invoice generated. You have {guest_invoices_remaining()} free invoices remaining.", "success"); return redirect(url_for("download_guest_pdf"))
             db.session.add(inv); db.session.flush(); invoice_data = invoice_view_context(inv); inv.pdf_path=pdf.generate(inv, invoice_data=invoice_data); remember_description_suggestions(current_user.id, inv.items); db.session.commit(); track_event("invoice_previewed"); track_event("pdf_generated", dedupe=False); logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
             if wants_json:
@@ -1038,7 +1049,11 @@ def download_guest_pdf():
     if not path.exists() or not path.is_file():
         flash("Unable to download that invoice. Please generate it again.", "danger")
         return redirect(url_for("create_invoice"))
-    return send_file(path, as_attachment=True, download_name=session.get("guest_pdf_filename", "invoice.pdf"))
+    download_name = session.get("guest_pdf_filename", "invoice.pdf")
+    session.pop("guest_pdf_path", None)
+    session.pop("guest_pdf_filename", None)
+    session.modified = True
+    return send_file(path, as_attachment=True, download_name=download_name)
 
 @app.route("/invoice/<int:invoice_id>")
 @app.route("/invoice/view/<int:invoice_id>")
