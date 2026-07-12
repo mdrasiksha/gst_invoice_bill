@@ -1,7 +1,7 @@
 """Multi-tenant SaaS web application for GST invoice generation."""
 from __future__ import annotations
 
-import html, logging, os, secrets, smtplib, sys
+import html, json, logging, os, secrets, smtplib, sys
 from functools import wraps
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -13,12 +13,12 @@ from flask_login import LoginManager, current_user, login_required, login_user, 
 from sqlalchemy.exc import IntegrityError
 from werkzeug.utils import secure_filename
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy import func, text
+from sqlalchemy import func, or_, text
 
 from gst_invoice.favicon import ensure_favicon_assets
 from gst_invoice.invoice_generator import calculate_invoice
 from gst_invoice.invoice_data import build_invoice_data, company_detail_lines
-from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, PasswordResetToken, ProductDescriptionSuggestion, User, db
+from gst_invoice.models import AnalyticsEvent, Company, Customer, Invoice, InvoiceItem, PasswordResetToken, ProductDescriptionSuggestion, User, db
 from gst_invoice.pdf_generator import PDFGenerator
 from gst_invoice.utils import INDIAN_STATE_CODES, amount_to_words, normalize_state_name, state_code_from_gstin, state_code_from_state, validate_email, validate_gstin, validate_phone
 from gst_invoice.tax_service import DEFAULT_SUPPLIER_STATE
@@ -236,6 +236,7 @@ def ensure_database_columns() -> None:
             add_column("customers", name, ddl)
         add_column("invoices", "round_off", "FLOAT DEFAULT 0")
         add_column("invoices", "created_by_user_id", "INTEGER")
+        # analytics_events is created by db.create_all(); indexes are declared on the model.
 
 
 
@@ -284,6 +285,100 @@ def remember_description_suggestions(user_id: int, items: list[InvoiceItem]) -> 
         suggestion.usage_count = (suggestion.usage_count or 0) + 1
         suggestion.last_used_at = datetime.utcnow()
         db.session.add(suggestion)
+
+
+ALLOWED_ANALYTICS_EVENTS = {
+    "landing_page_viewed",
+    "create_invoice_clicked",
+    "invoice_started",
+    "invoice_previewed",
+    "pdf_generated",
+    "signup_completed",
+}
+DEDUP_ANALYTICS_EVENTS = {
+    "landing_page_viewed",
+    "create_invoice_clicked",
+    "invoice_started",
+}
+
+def analytics_session_id() -> str:
+    session.setdefault("analytics_session_id", secrets.token_urlsafe(24))
+    return session["analytics_session_id"]
+
+def analytics_guest_id() -> str:
+    session.setdefault("analytics_guest_id", secrets.token_hex(16))
+    return session["analytics_guest_id"]
+
+def track_event(event_name: str, user_id: int | None = None, metadata: dict | None = None, dedupe: bool | None = None) -> None:
+    """Record an allowed analytics event without affecting the main request."""
+    if event_name not in ALLOWED_ANALYTICS_EVENTS:
+        logger.warning("Blocked unsupported analytics event", extra={"event_name": event_name})
+        return
+    try:
+        sid = analytics_session_id()
+        gid = analytics_guest_id()
+        uid = user_id if user_id is not None else (current_user.id if current_user.is_authenticated else None)
+        today = date.today()
+        should_dedupe = (event_name in DEDUP_ANALYTICS_EVENTS) if dedupe is None else dedupe
+        if should_dedupe:
+            existing = AnalyticsEvent.query.filter_by(event_name=event_name, event_date=today).filter(
+                or_(AnalyticsEvent.user_id == uid if uid else False, AnalyticsEvent.session_id == sid, AnalyticsEvent.guest_id == gid)
+            ).first()
+            if existing:
+                return
+        safe_meta = json.dumps(metadata or {}, separators=(",", ":")) if metadata else None
+        db.session.add(AnalyticsEvent(event_name=event_name, user_id=uid, session_id=sid, guest_id=gid, event_date=today, metadata_json=safe_meta))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception("Analytics event recording failed", extra={"event_name": event_name})
+
+def analytics_identity_expr():
+    return func.coalesce(
+        func.concat("u:", AnalyticsEvent.user_id),
+        func.concat("g:", AnalyticsEvent.guest_id),
+        func.concat("s:", AnalyticsEvent.session_id),
+    ) if db.engine.dialect.name != "sqlite" else func.coalesce(
+        "u:" + func.cast(AnalyticsEvent.user_id, db.String),
+        "g:" + AnalyticsEvent.guest_id,
+        "s:" + AnalyticsEvent.session_id,
+    )
+
+def parse_funnel_date_range(args) -> tuple[date, date, str]:
+    today = date.today(); preset = args.get("range", "last_30_days")
+    if preset == "today": start = end = today
+    elif preset == "last_7_days": start, end = today - timedelta(days=6), today
+    elif preset == "this_month": start, end = today.replace(day=1), today
+    elif preset == "custom":
+        try:
+            start = datetime.strptime(args.get("start_date", ""), "%Y-%m-%d").date()
+            end = datetime.strptime(args.get("end_date", ""), "%Y-%m-%d").date()
+        except ValueError:
+            start, end, preset = today - timedelta(days=29), today, "last_30_days"
+        if start > end: start, end = end, start
+        if (end - start).days > 365: start = end - timedelta(days=365)
+    else:
+        start, end, preset = today - timedelta(days=29), today, "last_30_days"
+    return start, end, preset
+
+def build_funnel_report(start: date, end: date) -> dict:
+    stages = [("landing_page_viewed","Website Visitors"),("create_invoice_clicked","Create Invoice Clicked"),("invoice_started","Invoice Started"),("invoice_previewed","Invoice Previewed"),("pdf_generated","PDF Generated"),("signup_completed","Signup Completed")]
+    identity = analytics_identity_expr()
+    rows = dict(db.session.query(AnalyticsEvent.event_name, func.count(func.distinct(identity))).filter(AnalyticsEvent.event_date >= start, AnalyticsEvent.event_date <= end, AnalyticsEvent.event_name.in_([s[0] for s in stages])).group_by(AnalyticsEvent.event_name).all())
+    signup_count = db.session.query(func.count(func.distinct(AnalyticsEvent.user_id))).filter(AnalyticsEvent.event_name == "signup_completed", AnalyticsEvent.user_id.isnot(None), AnalyticsEvent.event_date >= start, AnalyticsEvent.event_date <= end).scalar() or 0
+    rows["signup_completed"] = signup_count
+    pdf_users = db.session.query(func.count(func.distinct(AnalyticsEvent.user_id))).filter(AnalyticsEvent.event_name == "pdf_generated", AnalyticsEvent.user_id.isnot(None), AnalyticsEvent.event_date >= start, AnalyticsEvent.event_date <= end).scalar() or 0
+    first_pdf = db.session.query(AnalyticsEvent.user_id, func.min(AnalyticsEvent.event_date).label("first_date")).filter(AnalyticsEvent.event_name == "pdf_generated", AnalyticsEvent.user_id.isnot(None)).group_by(AnalyticsEvent.user_id).subquery()
+    returning = db.session.query(func.count(func.distinct(AnalyticsEvent.user_id))).join(first_pdf, AnalyticsEvent.user_id == first_pdf.c.user_id).filter(AnalyticsEvent.event_name == "pdf_generated", AnalyticsEvent.event_date >= start, AnalyticsEvent.event_date <= end, AnalyticsEvent.event_date > first_pdf.c.first_date).scalar() or 0
+    stage_data=[]; previous=None; visitors=rows.get("landing_page_viewed",0) or 0
+    for event,label in stages:
+        count = int(rows.get(event,0) or 0); prev_pct = 100.0 if previous in (None,0) and event=="landing_page_viewed" else ((count/previous*100) if previous else 0.0); overall = (count/visitors*100) if visitors else 0.0
+        stage_data.append({"event":event,"label":label,"count":count,"prev_pct":prev_pct,"drop_pct":max(0,100-prev_pct) if previous else 0,"overall_pct":overall})
+        previous=count
+    if stage_data:
+        prev=stage_data[-1]["count"]; stage_data.append({"event":"returning_invoice_users","label":"Returning Invoice Users","count":int(returning),"prev_pct":(returning/prev*100) if prev else 0,"drop_pct":max(0,100-((returning/prev*100) if prev else 0)),"overall_pct":(returning/visitors*100) if visitors else 0})
+    pdf_count=rows.get("pdf_generated",0) or 0
+    return {"stages":stage_data,"summary":{"visitor_to_pdf":(pdf_count/visitors*100) if visitors else 0,"pdf_to_signup":(signup_count/pdf_count*100) if pdf_count else 0,"visitor_to_signup":(signup_count/visitors*100) if visitors else 0,"returning_user_rate":(returning/pdf_users*100) if pdf_users else 0}}
 
 def create_or_update_admin(email: str, password: str, *, update_existing_password: bool = False) -> tuple[User, bool, bool]:
     """Create a new admin or promote an existing user safely.
@@ -668,7 +763,7 @@ def register():
             db.session.add_all([company, user]); db.session.commit()
         except IntegrityError:
             db.session.rollback(); flash("Email already registered.", "danger"); return redirect(url_for("register"))
-        login_user(user); flash("Account created. Complete your company profile.", "success"); return redirect(safe_next_url("company_setup"))
+        login_user(user); track_event("signup_completed", user_id=user.id, dedupe=True); flash("Account created. Complete your company profile.", "success"); return redirect(safe_next_url("company_setup"))
     return render_template("auth/register.html")
 
 @app.route("/login", methods=["GET", "POST"])
@@ -763,6 +858,7 @@ def pricing():
 
 @app.route("/")
 def landing():
+    track_event("landing_page_viewed")
     return render_template("landing.html")
 
 
@@ -841,6 +937,11 @@ def customer_delete(customer_id):
 def uploaded_file(filename):
     return send_from_directory(BASE_DIR / "uploads", filename)
 
+@app.route("/analytics/create-invoice-click", methods=["POST"])
+def track_create_invoice_click():
+    track_event("create_invoice_clicked")
+    return redirect(url_for("create_invoice"))
+
 @app.route("/invoice/new", methods=["GET", "POST"])
 def create_invoice():
     is_guest = not current_user.is_authenticated
@@ -891,9 +992,12 @@ def create_invoice():
                 validate_item(item); inv.items.append(item)
             if not inv.items: raise ValueError("Add at least one product or service row.")
             validate_invoice_dates(inv.invoice_date, inv.due_date); calculate_invoice(inv)
+            track_event("invoice_started")
             if is_guest:
                 invoice_data = build_invoice_data(inv)
                 inv.pdf_path=pdf.generate(inv, invoice_data=invoice_data)
+                track_event("invoice_previewed")
+                track_event("pdf_generated", dedupe=False)
                 session["guest_invoice_count"] = guest_invoice_count() + 1
                 session["guest_pdf_path"] = inv.pdf_path
                 session["guest_pdf_filename"] = f"{inv.invoice_number}.pdf"
@@ -902,7 +1006,7 @@ def create_invoice():
                 if wants_json:
                     return jsonify({"ok": True, "message": f"Invoice {inv.invoice_number} generated successfully.", "download_url": url_for("download_guest_pdf"), "filename": f"{inv.invoice_number}.pdf", "remaining": guest_invoices_remaining()})
                 flash(f"Invoice generated. You have {guest_invoices_remaining()} free invoices remaining.", "success"); return redirect(url_for("download_guest_pdf"))
-            db.session.add(inv); db.session.flush(); invoice_data = invoice_view_context(inv); inv.pdf_path=pdf.generate(inv, invoice_data=invoice_data); remember_description_suggestions(current_user.id, inv.items); db.session.commit(); logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
+            db.session.add(inv); db.session.flush(); invoice_data = invoice_view_context(inv); inv.pdf_path=pdf.generate(inv, invoice_data=invoice_data); remember_description_suggestions(current_user.id, inv.items); db.session.commit(); track_event("invoice_previewed"); track_event("pdf_generated", dedupe=False); logger.info("Generated invoice PDF", extra={"invoice_id": inv.id, "invoice_number": inv.invoice_number, "pdf_path": inv.pdf_path})
             if wants_json:
                 return jsonify({"ok": True, "message": f"Invoice {inv.invoice_number} generated successfully.", "download_url": url_for("download_pdf", invoice_id=inv.id), "filename": f"{inv.invoice_number}.pdf"})
             flash(f"Invoice {inv.invoice_number} saved.", "success"); return redirect(url_for("download_pdf", invoice_id=inv.id))
@@ -949,6 +1053,7 @@ def invoice_preview(invoice_id):
         abort(404)
     invoice_data = invoice_view_context(inv)
     log_invoice_tax_render_event("Rendering invoice preview with finalized tax data", invoice_data)
+    track_event("invoice_previewed", dedupe=False)
     return render_template("invoice_preview.html", **invoice_data)
 
 @app.route("/invoice/<int:invoice_id>/pdf")
@@ -967,6 +1072,7 @@ def download_pdf(invoice_id):
     inv.pdf_path = pdf.generate(inv, invoice_data=invoice_data)
     db.session.commit()
     path = Path(inv.pdf_path)
+    track_event("pdf_generated", dedupe=False)
     return send_file(path, as_attachment=True, download_name=f"{inv.invoice_number}.pdf")
 
 @app.route("/invoice/<int:invoice_id>/delete", methods=["POST"])
@@ -987,6 +1093,8 @@ def admin_index():
 @app.route("/admin/dashboard")
 @admin_required
 def admin_dashboard():
+    funnel_start, funnel_end, funnel_range = parse_funnel_date_range(request.args)
+    funnel = build_funnel_report(funnel_start, funnel_end)
     month_start, next_month = current_month_bounds()
     stats = {
         "users": User.query.count(),
@@ -1019,6 +1127,10 @@ def admin_dashboard():
         latest_invoices=latest_invoices,
         user_invoice_counts=user_invoice_counts,
         company_invoice_counts=company_invoice_counts,
+        funnel=funnel,
+        funnel_start=funnel_start,
+        funnel_end=funnel_end,
+        funnel_range=funnel_range,
     )
 
 
