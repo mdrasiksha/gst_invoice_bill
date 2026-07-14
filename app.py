@@ -120,12 +120,11 @@ def create_app() -> Flask:
     @app.context_processor
     def inject_globals():
         session.setdefault("csrf_token", secrets.token_urlsafe(32))
-        def upload_exists(path_value: str) -> bool:
-            if not path_value:
-                return False
-            path = Path(path_value)
-            return (path if path.is_absolute() else BASE_DIR / path).exists()
-        return {"csrf_token": session["csrf_token"], "upload_exists": upload_exists}
+        return {
+            "csrf_token": session["csrf_token"],
+            "upload_exists": company_asset_available,
+            "company_asset_url": company_asset_url,
+        }
 
     @app.route("/robots.txt")
     def robots_txt():
@@ -453,6 +452,58 @@ def admin_required(view_func):
         return view_func(*args, **kwargs)
     return wrapped_view
 
+def is_remote_asset(path_value: str | None) -> bool:
+    """Return True when a saved company asset points at permanent object storage."""
+    if not path_value:
+        return False
+    return urlsplit(path_value).scheme in {"http", "https"}
+
+
+def company_asset_url(path_value: str | None) -> str:
+    """Render either a remote asset URL or the local upload route path."""
+    if not path_value:
+        return ""
+    return path_value if is_remote_asset(path_value) else f"/{path_value.lstrip('/')}"
+
+
+def company_asset_available(path_value: str | None) -> bool:
+    """Check whether a saved asset can be displayed without rejecting remote storage URLs."""
+    if not path_value:
+        return False
+    if is_remote_asset(path_value):
+        return True
+    path = Path(path_value)
+    return (path if path.is_absolute() else BASE_DIR / path).exists()
+
+
+def upload_to_cloudinary(upload, *, public_id: str, folder: str) -> str:
+    """Upload an image to Cloudinary when CLOUDINARY_URL or credentials are configured."""
+    if not (os.getenv("CLOUDINARY_URL") or (os.getenv("CLOUDINARY_CLOUD_NAME") and os.getenv("CLOUDINARY_API_KEY") and os.getenv("CLOUDINARY_API_SECRET"))):
+        return ""
+    try:
+        import cloudinary
+        import cloudinary.uploader
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("Cloudinary storage is configured but the cloudinary package is not installed.") from exc
+    if os.getenv("CLOUDINARY_CLOUD_NAME"):
+        cloudinary.config(
+            cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+            api_key=os.getenv("CLOUDINARY_API_KEY"),
+            api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+            secure=True,
+        )
+    upload.stream.seek(0)
+    result = cloudinary.uploader.upload(
+        upload.stream,
+        folder=folder,
+        public_id=public_id,
+        overwrite=True,
+        resource_type="image",
+        unique_filename=False,
+    )
+    return result.get("secure_url") or result.get("url") or ""
+
+
 def save_upload(upload, upload_dir: Path, allowed_extensions: set[str], label: str) -> str:
     if not upload or not upload.filename: return ""
     suffix = Path(upload.filename).suffix.lower()
@@ -462,8 +513,15 @@ def save_upload(upload, upload_dir: Path, allowed_extensions: set[str], label: s
         upload.stream.seek(0)
     except (UnidentifiedImageError, OSError) as exc:
         raise ValueError(f"{label} must be a valid image file.") from exc
-    filename = f"company-{current_user.company_id}-{secrets.token_hex(8)}{suffix}"
+    company_id = current_user.company_id
+    token = secrets.token_hex(8)
+    public_id = f"{label.lower().replace(' ', '-')}-{token}"
+    cloud_url = upload_to_cloudinary(upload, public_id=public_id, folder=f"gst-smart/company-{company_id}")
+    if cloud_url:
+        return cloud_url
+    filename = f"company-{company_id}-{token}{suffix}"
     target = upload_dir / secure_filename(filename)
+    upload.stream.seek(0)
     upload.save(target)
     return str(target.relative_to(BASE_DIR))
 
@@ -676,6 +734,14 @@ def update_company_from_form(company: Company):
     company.phone=f.get("phone", "").strip(); company.email=f.get("email", "").strip(); company.website=f.get("website", "").strip()
     company.bank_name=f.get("bank_name", "").strip(); company.account_number=f.get("account_number", "").strip(); company.ifsc=f.get("ifsc", "").strip().upper(); company.upi_id=f.get("upi_id", "").strip()
     company.authorized_signature_name=f.get("authorized_signature_name", "").strip()
+    if f.get("remove_logo") == "1":
+        company.logo_path = ""
+    if f.get("remove_upi_qr") == "1":
+        company.qr_code_path = ""
+        if hasattr(company, "upi_qr_image_url"):
+            company.upi_qr_image_url = ""
+    if f.get("remove_signature_image") == "1":
+        company.signature_image_path = ""
     logo = save_logo(request.files.get("logo"));
     if logo: company.logo_path = logo
     qr = save_upi_qr(request.files.get("upi_qr_image"));
@@ -683,13 +749,8 @@ def update_company_from_form(company: Company):
         company.qr_code_path = qr
         if hasattr(company, "upi_qr_image_url"):
             company.upi_qr_image_url = qr
-    if f.get("remove_upi_qr") == "1":
-        company.qr_code_path = ""
-        if hasattr(company, "upi_qr_image_url"):
-            company.upi_qr_image_url = ""
     signature = save_signature(request.files.get("signature_image"));
     if signature: company.signature_image_path = signature
-    if f.get("remove_signature_image") == "1": company.signature_image_path = ""
     validate_company(company)
 
 
@@ -949,6 +1010,12 @@ def customer_delete(customer_id):
 @app.route("/uploads/<path:filename>")
 @login_required
 def uploaded_file(filename):
+    safe_parts = Path(filename).parts
+    if ".." in safe_parts:
+        abort(404)
+    expected_prefix = f"company-{current_user.company_id}-"
+    if not Path(filename).name.startswith(expected_prefix):
+        abort(404)
     return send_from_directory(BASE_DIR / "uploads", filename)
 
 @app.route("/analytics/create-invoice-click", methods=["POST"])

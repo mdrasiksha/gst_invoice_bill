@@ -9,3 +9,5 @@ gunicorn>=22.0.0
 python-dotenv>=1.0.1
 psycopg2-binary
 requests>=2.31.0
+
+cloudinary>=1.41.0
