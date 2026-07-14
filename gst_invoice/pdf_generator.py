@@ -86,25 +86,31 @@ class PDFGenerator:
         def money(value) -> str: return f"₹{float(value or 0):,.2f}"
         def present(value) -> bool: return bool(str(value or "").strip())
         def company_address() -> str: return ", ".join([p for p in [invoice.company.address, invoice.company.city, invoice.company.state, invoice.company.pin_code] if present(p)])
-        def image_path(value: str | None) -> Path | None:
-            if not value: return None
+        def image_source(value: str | None):
+            if not value:
+                return None
+            if str(value).startswith(("http://", "https://")):
+                return value
             p = Path(value)
             return p if p.is_absolute() else BASE_DIR.parent / p
-        def fitted_image(path_value: Path, box_width, box_height) -> Image:
+        def image_available(source) -> bool:
+            return bool(source) and (isinstance(source, str) or source.exists())
+        def fitted_image(source, box_width, box_height) -> Image:
             """Return a ReportLab image scaled proportionally inside a fixed box."""
-            reader = ImageReader(str(path_value))
+            source_value = source if isinstance(source, str) else str(source)
+            reader = ImageReader(source_value)
             width, height = reader.getSize()
             if not width or not height:
                 raise ValueError("Invalid image dimensions")
             scale = min(box_width / width, box_height / height)
-            return Image(str(path_value), width=width * scale, height=height * scale)
+            return Image(source_value, width=width * scale, height=height * scale)
 
         doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=9*mm, leftMargin=9*mm, topMargin=9*mm, bottomMargin=12*mm)
         story = []
         logo = None
-        logo_path = image_path(invoice.company.logo_path)
+        logo_path = image_source(invoice.company.logo_path)
         logo_box = 30*mm
-        if logo_path and logo_path.exists():
+        if image_available(logo_path):
             try:
                 logo = Table(
                     [[fitted_image(logo_path, logo_box, logo_box)]],
@@ -191,10 +197,10 @@ class PDFGenerator:
         bank_lines = [f"{label}: {esc(value)}" for label, value in bank_fields if present(value)]
         bank = Paragraph(f"<b>Bank Details</b><br/>{'<br/>'.join(bank_lines)}", styles["Small"]) if bank_lines else None
         qr_cell = None
-        qr_path = image_path(getattr(invoice.company, "upi_qr_image_url", ""))
-        if qr_path and qr_path.exists():
+        qr_path = image_source(getattr(invoice.company, "upi_qr_image_url", ""))
+        if image_available(qr_path):
             try:
-                qr_cell = [Image(str(qr_path), width=27*mm, height=27*mm, kind="proportional"), Paragraph("<b>Scan &amp; Pay via UPI</b>", styles["Tiny"])]
+                qr_cell = [Image(qr_path if isinstance(qr_path, str) else str(qr_path), width=27*mm, height=27*mm, kind="proportional"), Paragraph("<b>Scan &amp; Pay via UPI</b>", styles["Tiny"])]
             except Exception:
                 logger.warning("Skipping invalid UPI QR image", exc_info=True, extra={"company_id": invoice.company_id})
         terms_text = esc(getattr(invoice, "terms", "") or "1. Goods/services once sold will not be taken back unless agreed in writing.\n2. Subject to local jurisdiction.")
@@ -216,8 +222,8 @@ class PDFGenerator:
         story += [Table([payment_cells], colWidths=payment_widths, style=payment_style), Spacer(1, 5*mm)]
 
         signature_parts = []
-        signature_path = image_path(getattr(invoice.company, "signature_image_path", ""))
-        if signature_path and signature_path.exists():
+        signature_path = image_source(getattr(invoice.company, "signature_image_path", ""))
+        if image_available(signature_path):
             try:
                 signature_parts.append(Table([[fitted_image(signature_path, 42*mm, 14*mm)]], colWidths=[56*mm], style=[("ALIGN", (0,0), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("LEFTPADDING", (0,0), (-1,-1), 0), ("RIGHTPADDING", (0,0), (-1,-1), 0), ("TOPPADDING", (0,0), (-1,-1), 0), ("BOTTOMPADDING", (0,0), (-1,-1), 0)]))
             except Exception:
