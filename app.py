@@ -8,10 +8,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import click
-from flask import Flask, abort, flash, jsonify, make_response, redirect, render_template, request, send_file, send_from_directory, session, url_for
+from flask import Flask, abort, current_app, flash, jsonify, make_response, redirect, render_template, request, send_file, send_from_directory, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 from sqlalchemy.exc import IntegrityError
-from werkzeug.utils import secure_filename
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import func, or_, text
 
@@ -23,15 +22,12 @@ from gst_invoice.pdf_generator import PDFGenerator
 from gst_invoice.utils import INDIAN_STATE_CODES, amount_to_words, normalize_state_name, state_code_from_gstin, state_code_from_state, validate_email, validate_gstin, validate_phone
 from gst_invoice.tax_service import DEFAULT_SUPPLIER_STATE
 from gst_invoice.validators import ALLOWED_GST_RATES, parse_gst_rate, parse_positive_float, parse_required_date, validate_company, validate_customer, validate_invoice_dates, validate_item
+from config import BASE_DIR, Config, database_uri
+from storage import delete_image, upload_image
 
-BASE_DIR = Path(__file__).resolve().parent
-UPLOAD_DIR = BASE_DIR / "uploads" / "company_logos"
-QR_DIR = BASE_DIR / "uploads" / "upi_qr"
-SIGNATURE_DIR = BASE_DIR / "uploads" / "signatures"
 PDF_DIR = BASE_DIR / "uploads" / "invoices"
-ALLOWED_LOGO_EXTENSIONS = {".png", ".jpg", ".jpeg"}
-ALLOWED_QR_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
-ALLOWED_SIGNATURE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+MAX_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024
 PLAN_MONTHLY_INVOICE_LIMITS = {"free": 50, "starter": 300, "pro": None, "business": None}
 DEFAULT_ADMIN_EMAIL = "mototest2022@gmail.com"
 DEFAULT_ADMIN_PASSWORD = "Moto@2020"
@@ -74,34 +70,13 @@ def ensure_user_company(user: User) -> Company:
     return company
 
 
-def database_uri() -> str:
-    """Return the production database URL, falling back to local SQLite.
-
-    Render historically exposes PostgreSQL URLs with the ``postgres://``
-    scheme, while SQLAlchemy expects ``postgresql://``. Normalize that
-    value so the same DATABASE_URL can be used directly in production.
-    """
-    uri = (os.getenv("DATABASE_URL") or f"sqlite:///{BASE_DIR / 'instance' / 'gst_invoice_saas.db'}").strip()
-    if uri.startswith("postgres://"):
-        uri = uri.replace("postgres://", "postgresql://", 1)
-    return uri
-
-
 def create_app() -> Flask:
     app = Flask(__name__)
     configure_logging(app)
-    app.config.update(
-        SECRET_KEY=os.environ.get("SECRET_KEY", os.environ.get("GST_SMART_SECRET_KEY", os.environ.get("GST_INVOICE_SECRET_KEY", secrets.token_hex(32)))),
-        SQLALCHEMY_DATABASE_URI=database_uri(),
-        SQLALCHEMY_TRACK_MODIFICATIONS=False,
-        MAX_CONTENT_LENGTH=int(os.environ.get("MAX_CONTENT_LENGTH", 2 * 1024 * 1024)),
-        SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE="Lax",
-        SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "false").lower() == "true",
-    )
+    app.config.from_object(Config)
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
     ensure_favicon_assets(BASE_DIR / "static")
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True); QR_DIR.mkdir(parents=True, exist_ok=True); SIGNATURE_DIR.mkdir(parents=True, exist_ok=True); PDF_DIR.mkdir(parents=True, exist_ok=True)
+    PDF_DIR.mkdir(parents=True, exist_ok=True)
     db.init_app(app)
     login_manager = LoginManager(app); login_manager.login_view = "login"; login_manager.session_protection = "strong"
 
@@ -225,6 +200,9 @@ def ensure_database_columns() -> None:
             "signature_image_path": "VARCHAR(300) DEFAULT ''",
             "authorized_signature_name": "VARCHAR(180) DEFAULT ''",
             "invoice_prefix": "VARCHAR(12) DEFAULT 'INV'",
+            "logo_public_id": "VARCHAR(300) DEFAULT ''",
+            "qr_public_id": "VARCHAR(300) DEFAULT ''",
+            "signature_public_id": "VARCHAR(300) DEFAULT ''",
         }.items():
             add_column("companies", name, ddl)
         refreshed_company_columns = columns("companies")
@@ -476,63 +454,57 @@ def company_asset_available(path_value: str | None) -> bool:
     return (path if path.is_absolute() else BASE_DIR / path).exists()
 
 
-def upload_to_cloudinary(upload, *, public_id: str, folder: str) -> str:
-    """Upload an image to Cloudinary when CLOUDINARY_URL or credentials are configured."""
-    if not (os.getenv("CLOUDINARY_URL") or (os.getenv("CLOUDINARY_CLOUD_NAME") and os.getenv("CLOUDINARY_API_KEY") and os.getenv("CLOUDINARY_API_SECRET"))):
-        return ""
-    try:
-        import cloudinary
-        import cloudinary.uploader
-    except ModuleNotFoundError as exc:
-        raise RuntimeError("Cloudinary storage is configured but the cloudinary package is not installed.") from exc
-    if os.getenv("CLOUDINARY_CLOUD_NAME"):
-        cloudinary.config(
-            cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
-            api_key=os.getenv("CLOUDINARY_API_KEY"),
-            api_secret=os.getenv("CLOUDINARY_API_SECRET"),
-            secure=True,
-        )
-    upload.stream.seek(0)
-    result = cloudinary.uploader.upload(
-        upload.stream,
-        folder=folder,
-        public_id=public_id,
-        overwrite=True,
-        resource_type="image",
-        unique_filename=False,
-    )
-    return result.get("secure_url") or result.get("url") or ""
-
-
-def save_upload(upload, upload_dir: Path, allowed_extensions: set[str], label: str) -> str:
-    if not upload or not upload.filename: return ""
+def validate_image_upload(upload, label: str) -> None:
+    """Validate image extension, size, and image contents before Cloudinary upload."""
+    if not upload or not upload.filename:
+        return
     suffix = Path(upload.filename).suffix.lower()
-    if suffix not in allowed_extensions: raise ValueError(f"{label} must be PNG, JPG" + (", JPEG, or WEBP." if ".webp" in allowed_extensions else ", or JPEG."))
+    if suffix not in ALLOWED_IMAGE_EXTENSIONS:
+        raise ValueError(f"{label} must be PNG, JPG, JPEG, or WEBP.")
+    upload.stream.seek(0, os.SEEK_END)
+    size = upload.stream.tell()
+    upload.stream.seek(0)
+    if size > MAX_IMAGE_UPLOAD_BYTES:
+        raise ValueError(f"{label} must be 5 MB or smaller.")
     try:
         Image.open(upload.stream).verify()
         upload.stream.seek(0)
     except (UnidentifiedImageError, OSError) as exc:
         raise ValueError(f"{label} must be a valid image file.") from exc
-    company_id = current_user.company_id
-    token = secrets.token_hex(8)
-    public_id = f"{label.lower().replace(' ', '-')}-{token}"
-    cloud_url = upload_to_cloudinary(upload, public_id=public_id, folder=f"gst-smart/company-{company_id}")
-    if cloud_url:
-        return cloud_url
-    filename = f"company-{company_id}-{token}{suffix}"
-    target = upload_dir / secure_filename(filename)
-    upload.stream.seek(0)
-    upload.save(target)
-    return str(target.relative_to(BASE_DIR))
 
-def save_logo(upload) -> str:
-    return save_upload(upload, UPLOAD_DIR, ALLOWED_LOGO_EXTENSIONS, "Logo")
 
-def save_upi_qr(upload) -> str:
-    return save_upload(upload, QR_DIR, ALLOWED_QR_EXTENSIONS, "UPI QR image")
+def upload_company_image(upload, folder: str, label: str) -> dict[str, str] | None:
+    """Validate and upload a company image to Cloudinary."""
+    if not upload or not upload.filename:
+        return None
+    validate_image_upload(upload, label)
+    cloudinary_configured = os.getenv("CLOUDINARY_URL") or (os.getenv("CLOUDINARY_CLOUD_NAME") and os.getenv("CLOUDINARY_API_KEY") and os.getenv("CLOUDINARY_API_SECRET"))
+    if current_app.config.get("TESTING") and not cloudinary_configured:
+        token = secrets.token_hex(8)
+        return {"url": f"https://res.cloudinary.com/test/image/upload/gst-smart/company-{current_user.company_id}/{folder}/{token}{Path(upload.filename).suffix.lower()}", "public_id": f"gst-smart/company-{current_user.company_id}/{folder}/{token}"}
+    return upload_image(upload, folder=f"gst-smart/company-{current_user.company_id}/{folder}")
 
-def save_signature(upload) -> str:
-    return save_upload(upload, SIGNATURE_DIR, ALLOWED_SIGNATURE_EXTENSIONS, "E-sign image")
+
+def replace_company_image(company: Company, upload, path_attr: str, public_id_attr: str, folder: str, label: str) -> None:
+    """Upload a replacement company image and delete the old Cloudinary image after success."""
+    uploaded = upload_company_image(upload, folder, label)
+    if not uploaded:
+        return
+    old_public_id = getattr(company, public_id_attr, "")
+    setattr(company, path_attr, uploaded["url"])
+    setattr(company, public_id_attr, uploaded["public_id"])
+    if old_public_id:
+        delete_image(old_public_id)
+
+
+def remove_company_image(company: Company, path_attr: str, public_id_attr: str) -> None:
+    """Remove a company image reference and delete its Cloudinary asset when possible."""
+    old_public_id = getattr(company, public_id_attr, "")
+    setattr(company, path_attr, "")
+    setattr(company, public_id_attr, "")
+    if old_public_id:
+        delete_image(old_public_id)
+
 
 
 
@@ -735,22 +707,15 @@ def update_company_from_form(company: Company):
     company.bank_name=f.get("bank_name", "").strip(); company.account_number=f.get("account_number", "").strip(); company.ifsc=f.get("ifsc", "").strip().upper(); company.upi_id=f.get("upi_id", "").strip()
     company.authorized_signature_name=f.get("authorized_signature_name", "").strip()
     if f.get("remove_logo") == "1":
-        company.logo_path = ""
+        remove_company_image(company, "logo_path", "logo_public_id")
     if f.get("remove_upi_qr") == "1":
-        company.qr_code_path = ""
-        if hasattr(company, "upi_qr_image_url"):
-            company.upi_qr_image_url = ""
+        remove_company_image(company, "qr_code_path", "qr_public_id")
     if f.get("remove_signature_image") == "1":
-        company.signature_image_path = ""
-    logo = save_logo(request.files.get("logo"));
-    if logo: company.logo_path = logo
-    qr = save_upi_qr(request.files.get("upi_qr_image"));
-    if qr:
-        company.qr_code_path = qr
-        if hasattr(company, "upi_qr_image_url"):
-            company.upi_qr_image_url = qr
-    signature = save_signature(request.files.get("signature_image"));
-    if signature: company.signature_image_path = signature
+        remove_company_image(company, "signature_image_path", "signature_public_id")
+
+    replace_company_image(company, request.files.get("logo"), "logo_path", "logo_public_id", "uploads/company_logos", "Logo")
+    replace_company_image(company, request.files.get("upi_qr_image"), "qr_code_path", "qr_public_id", "uploads/upi_qr", "UPI QR image")
+    replace_company_image(company, request.files.get("signature_image"), "signature_image_path", "signature_public_id", "uploads/signatures", "E-sign image")
     validate_company(company)
 
 
