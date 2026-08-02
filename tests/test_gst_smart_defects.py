@@ -13,6 +13,60 @@ from gst_invoice.models import Company, Customer, Invoice, InvoiceItem, Password
 from gst_invoice.utils import INDIAN_STATE_CODES, state_code_from_state, state_name_from_code
 
 
+def test_cloudinary_configured_with_individual_render_env_vars(monkeypatch):
+    import storage
+
+    monkeypatch.delenv("CLOUDINARY_URL", raising=False)
+    monkeypatch.setenv("CLOUDINARY_CLOUD_NAME", " render-cloud ")
+    monkeypatch.setenv("CLOUDINARY_API_KEY", " render-key ")
+    monkeypatch.setenv("CLOUDINARY_API_SECRET", " render-secret ")
+
+    assert storage.is_cloudinary_configured() is True
+    status = storage.cloudinary_environment_status()
+    assert status["cloudinary_url_present"] is False
+    assert status["cloud_name_present"] is True
+    assert status["api_key_present"] is True
+    assert status["api_secret_present"] is True
+
+
+def test_configure_cloudinary_uses_individual_env_vars(monkeypatch):
+    import storage
+
+    monkeypatch.delenv("CLOUDINARY_URL", raising=False)
+    monkeypatch.setenv("CLOUDINARY_CLOUD_NAME", "render-cloud")
+    monkeypatch.setenv("CLOUDINARY_API_KEY", "render-key")
+    monkeypatch.setenv("CLOUDINARY_API_SECRET", "render-secret")
+    monkeypatch.setattr(storage, "_CONFIGURED", False)
+
+    captured = {}
+
+    def fake_config(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(storage.cloudinary, "config", fake_config)
+
+    storage._configure_cloudinary()
+
+    assert captured == {
+        "cloud_name": "render-cloud",
+        "api_key": "render-key",
+        "api_secret": "render-secret",
+        "secure": True,
+    }
+    assert storage._CONFIGURED is True
+
+
+def test_cloudinary_configured_with_cloudinary_url(monkeypatch):
+    import storage
+
+    monkeypatch.setenv("CLOUDINARY_URL", "cloudinary://key:secret@cloud")
+    monkeypatch.delenv("CLOUDINARY_CLOUD_NAME", raising=False)
+    monkeypatch.delenv("CLOUDINARY_API_KEY", raising=False)
+    monkeypatch.delenv("CLOUDINARY_API_SECRET", raising=False)
+
+    assert storage.is_cloudinary_configured() is True
+
+
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"

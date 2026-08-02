@@ -24,21 +24,32 @@ def _env(name: str) -> str:
     return (os.getenv(name) or "").strip()
 
 
+def _cloudinary_credentials() -> tuple[str, str, str]:
+    """Return individual Cloudinary credentials from the process environment."""
+    return (
+        _env("CLOUDINARY_CLOUD_NAME"),
+        _env("CLOUDINARY_API_KEY"),
+        _env("CLOUDINARY_API_SECRET"),
+    )
+
+
 def cloudinary_environment_status() -> dict[str, Any]:
     """Return non-secret Cloudinary environment status for diagnostics."""
+    cloud_name, api_key, api_secret = _cloudinary_credentials()
     return {
         "cloudinary_url_present": bool(_env("CLOUDINARY_URL")),
-        "cloud_name_present": bool(_env("CLOUDINARY_CLOUD_NAME")),
-        "cloud_name": _env("CLOUDINARY_CLOUD_NAME") or None,
-        "api_key_present": bool(_env("CLOUDINARY_API_KEY")),
-        "api_secret_present": bool(_env("CLOUDINARY_API_SECRET")),
+        "cloud_name_present": bool(cloud_name),
+        "cloud_name": cloud_name or None,
+        "api_key_present": bool(api_key),
+        "api_secret_present": bool(api_secret),
     }
 
 
 def is_cloudinary_configured() -> bool:
-    """Return whether the environment contains a complete Cloudinary configuration."""
-    status = cloudinary_environment_status()
-    return bool(status["cloudinary_url_present"] or (status["cloud_name_present"] and status["api_key_present"] and status["api_secret_present"]))
+    """Return whether the environment contains a supported Cloudinary configuration."""
+    cloudinary_url = _env("CLOUDINARY_URL")
+    cloud_name, api_key, api_secret = _cloudinary_credentials()
+    return bool(cloudinary_url or (cloud_name and api_key and api_secret))
 
 
 def _configure_cloudinary() -> None:
@@ -58,9 +69,7 @@ def _configure_cloudinary() -> None:
         _CONFIGURED = True
         return
 
-    cloud_name = _env("CLOUDINARY_CLOUD_NAME")
-    api_key = _env("CLOUDINARY_API_KEY")
-    api_secret = _env("CLOUDINARY_API_SECRET")
+    cloud_name, api_key, api_secret = _cloudinary_credentials()
     if not (cloud_name and api_key and api_secret):
         logger.error("Cloudinary configuration is incomplete", extra=status)
         raise RuntimeError(
