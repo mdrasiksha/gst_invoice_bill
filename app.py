@@ -23,7 +23,7 @@ from gst_invoice.utils import INDIAN_STATE_CODES, amount_to_words, normalize_sta
 from gst_invoice.tax_service import DEFAULT_SUPPLIER_STATE
 from gst_invoice.validators import ALLOWED_GST_RATES, parse_gst_rate, parse_positive_float, parse_required_date, validate_company, validate_customer, validate_invoice_dates, validate_item
 from config import BASE_DIR, Config, database_uri
-from storage import delete_image, upload_image
+from storage import delete_image, is_cloudinary_configured, upload_image
 
 PDF_DIR = BASE_DIR / "uploads" / "invoices"
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
@@ -478,8 +478,7 @@ def upload_company_image(upload, folder: str, label: str) -> dict[str, str] | No
     if not upload or not upload.filename:
         return None
     validate_image_upload(upload, label)
-    cloudinary_configured = os.getenv("CLOUDINARY_URL") or (os.getenv("CLOUDINARY_CLOUD_NAME") and os.getenv("CLOUDINARY_API_KEY") and os.getenv("CLOUDINARY_API_SECRET"))
-    if current_app.config.get("TESTING") and not cloudinary_configured:
+    if current_app.config.get("TESTING") and not is_cloudinary_configured():
         token = secrets.token_hex(8)
         return {"url": f"https://res.cloudinary.com/test/image/upload/gst-smart/company-{current_user.company_id}/{folder}/{token}{Path(upload.filename).suffix.lower()}", "public_id": f"gst-smart/company-{current_user.company_id}/{folder}/{token}"}
     return upload_image(upload, folder=f"gst-smart/company-{current_user.company_id}/{folder}")

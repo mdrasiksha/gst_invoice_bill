@@ -1,24 +1,74 @@
 """Cloudinary-backed image storage helpers for GST Smart uploads."""
 from __future__ import annotations
 
+import logging
 import os
+from pathlib import Path
 from typing import Any
 
 import cloudinary
 import cloudinary.uploader
+from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
+BASE_DIR = Path(__file__).resolve().parent
+
+# Load local development variables from .env without overriding Render's environment.
+load_dotenv(BASE_DIR / ".env", override=False)
+
+_CONFIGURED = False
+
+
+def _env(name: str) -> str:
+    """Return a normalized environment value, trimming accidental whitespace."""
+    return (os.getenv(name) or "").strip()
+
+
+def cloudinary_environment_status() -> dict[str, Any]:
+    """Return non-secret Cloudinary environment status for diagnostics."""
+    return {
+        "cloudinary_url_present": bool(_env("CLOUDINARY_URL")),
+        "cloud_name_present": bool(_env("CLOUDINARY_CLOUD_NAME")),
+        "cloud_name": _env("CLOUDINARY_CLOUD_NAME") or None,
+        "api_key_present": bool(_env("CLOUDINARY_API_KEY")),
+        "api_secret_present": bool(_env("CLOUDINARY_API_SECRET")),
+    }
+
+
+def is_cloudinary_configured() -> bool:
+    """Return whether the environment contains a complete Cloudinary configuration."""
+    status = cloudinary_environment_status()
+    return bool(status["cloudinary_url_present"] or (status["cloud_name_present"] and status["api_key_present"] and status["api_secret_present"]))
 
 
 def _configure_cloudinary() -> None:
-    """Configure Cloudinary from Render environment variables."""
-    if os.getenv("CLOUDINARY_URL"):
-        cloudinary.config(secure=True)
+    """Configure Cloudinary from Render or local development environment variables."""
+    global _CONFIGURED
+    if _CONFIGURED:
         return
-    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME")
-    api_key = os.getenv("CLOUDINARY_API_KEY")
-    api_secret = os.getenv("CLOUDINARY_API_SECRET")
+
+    status = cloudinary_environment_status()
+    logger.info("Cloudinary configuration detected", extra=status)
+
+    cloudinary_url = _env("CLOUDINARY_URL")
+    if cloudinary_url:
+        # The Cloudinary SDK reads CLOUDINARY_URL from the process environment.
+        os.environ["CLOUDINARY_URL"] = cloudinary_url
+        cloudinary.config(secure=True)
+        _CONFIGURED = True
+        return
+
+    cloud_name = _env("CLOUDINARY_CLOUD_NAME")
+    api_key = _env("CLOUDINARY_API_KEY")
+    api_secret = _env("CLOUDINARY_API_SECRET")
     if not (cloud_name and api_key and api_secret):
-        raise RuntimeError("Cloudinary is not configured. Set CLOUDINARY_URL or CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.")
+        logger.error("Cloudinary configuration is incomplete", extra=status)
+        raise RuntimeError(
+            "Cloudinary is not configured. Set CLOUDINARY_URL or CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET."
+        )
+
     cloudinary.config(cloud_name=cloud_name, api_key=api_key, api_secret=api_secret, secure=True)
+    _CONFIGURED = True
 
 
 def upload_image(file, folder: str) -> dict[str, str]:
