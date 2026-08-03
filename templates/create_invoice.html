@@ -38,7 +38,17 @@
       <div class="amount-words"><strong>Amount in Words:</strong> <span id="previewWords">{{ amount_to_words(0) }}</span></div>
       <div class="preview-three-col optional-count-{{ (1 if company.bank_name or company.account_number or company.ifsc or company.upi_id else 0) + (1 if company.upi_qr_image_url and upload_exists(company.upi_qr_image_url) else 0) + 1 }}">{% if company.bank_name or company.account_number or company.ifsc or company.upi_id %}<p><strong>Bank Details</strong>{% if company.bank_name %}<br>Bank Name: {{ company.bank_name }}{% endif %}{% if company.account_number %}<br>Account Number: {{ company.account_number }}{% endif %}{% if company.ifsc %}<br>IFSC: {{ company.ifsc }}{% endif %}{% if company.upi_id %}<br>UPI ID: {{ company.upi_id }}{% endif %}</p>{% endif %}{% if company.upi_qr_image_url and upload_exists(company.upi_qr_image_url) %}<p class="text-center"><img src="{{ company_asset_url(company.upi_qr_image_url) }}" class="preview-qr" alt="UPI QR"><br><strong>Scan & Pay via UPI</strong></p>{% endif %}<p><strong>Terms & Conditions</strong><br><span id="previewTerms">1. Goods/services once sold will not be taken back unless agreed in writing.</span></p></div>
       {% if company.signature_image_path and upload_exists(company.signature_image_path) %}<div class="signature-row signature-row-single"><span class="authorized-signature-box"><span class="signature-space"><img src="{{ company_asset_url(company.signature_image_path) }}" class="invoice-signature-img" alt="Authorized e-signature"></span>{% if company.authorized_signature_name %}<span class="signature-name">{{ company.authorized_signature_name }}</span>{% endif %}<strong>Authorized Signature</strong></span></div>{% endif %}
-    </div></div></aside>
+    </div>
+      <div class="text-center generate-pdf-bottom-action">
+        <button
+          id="generatePdfBtnBottom"
+          type="button"
+          class="btn btn-success btn-lg">
+          <i class="bi bi-file-earmark-pdf"></i>
+          Generate PDF
+        </button>
+      </div>
+    </div></aside>
   </div>
 </form>
 
