@@ -90,6 +90,13 @@
     ['input','change'].forEach(eventName=>el.addEventListener(eventName,()=>{updateCustomerMode();recalc();}));
   });
   form.querySelectorAll('[name="customer_type"]').forEach(el=>el.addEventListener('change',()=>{updateCustomerMode();recalc();}));
+  const topBtn=document.getElementById('generatePdfBtn');
+  const bottomBtn=document.getElementById('generatePdfBtnBottom');
+  if(topBtn && bottomBtn){
+    bottomBtn.addEventListener('click',()=>{
+      topBtn.click();
+    });
+  }
   form.addEventListener('submit',async(e)=>{
     if(isNewCustomer()){const required=[['new_customer_name','Customer Name']]; const missing=required.find(([name])=>!field(name)?.value.trim()); if(missing){e.preventDefault(); field(missing[0])?.focus(); alert(`${missing[1]} is required for a new customer.`); return;}}
     const hasDescription=Array.from(form.querySelectorAll('[name="item_name[]"]')).some(input=>input.value.trim());
