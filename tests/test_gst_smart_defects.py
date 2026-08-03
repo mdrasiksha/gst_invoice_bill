@@ -879,3 +879,62 @@ def test_guest_optional_customer_gstin_validates_only_when_present(client):
 
     assert rv.status_code == 400
     assert rv.json["message"] == "Invalid GST number or GST rate. Please check the GST details."
+
+
+def test_pdf_generation_downloads_cloudinary_company_assets(client, monkeypatch, tmp_path):
+    login(client)
+    image_bytes = io.BytesIO()
+    Image.new("RGB", (24, 12), color="blue").save(image_bytes, format="PNG")
+    payload = image_bytes.getvalue()
+    requested = []
+
+    class FakeResponse:
+        content = payload
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, timeout):
+        requested.append((url, timeout))
+        return FakeResponse()
+
+    monkeypatch.setattr("gst_invoice.reportlab_images.requests.get", fake_get)
+    with app.app_context():
+        inv = make_invoice()
+        inv.company.logo_path = "https://res.cloudinary.com/demo/image/upload/logo.png"
+        inv.company.qr_code_path = "https://res.cloudinary.com/demo/image/upload/upi_qr.png"
+        inv.company.signature_image_path = "https://res.cloudinary.com/demo/image/upload/esign.png"
+        inv.company.authorized_signature_name = "Owner"
+        db.session.commit()
+        from gst_invoice.pdf_generator import PDFGenerator
+
+        output = PDFGenerator(output_dir=tmp_path).generate(inv)
+
+    assert Path(output).exists()
+    assert requested == [
+        ("https://res.cloudinary.com/demo/image/upload/logo.png", 15),
+        ("https://res.cloudinary.com/demo/image/upload/upi_qr.png", 15),
+        ("https://res.cloudinary.com/demo/image/upload/esign.png", 15),
+    ]
+
+
+def test_pdf_generation_skips_unavailable_cloudinary_images(client, monkeypatch, tmp_path, caplog):
+    login(client)
+
+    def fake_get(url, timeout):
+        raise RuntimeError("network unavailable")
+
+    monkeypatch.setattr("gst_invoice.reportlab_images.requests.get", fake_get)
+    caplog.set_level("WARNING")
+    with app.app_context():
+        inv = make_invoice()
+        inv.company.logo_path = "https://res.cloudinary.com/demo/image/upload/logo.png"
+        inv.company.qr_code_path = "https://res.cloudinary.com/demo/image/upload/upi_qr.png"
+        inv.company.signature_image_path = "https://res.cloudinary.com/demo/image/upload/esign.png"
+        db.session.commit()
+        from gst_invoice.pdf_generator import PDFGenerator
+
+        output = PDFGenerator(output_dir=tmp_path).generate(inv)
+
+    assert Path(output).exists()
+    assert "Unable to load image for ReportLab" in caplog.text

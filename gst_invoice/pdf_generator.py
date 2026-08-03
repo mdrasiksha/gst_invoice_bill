@@ -54,7 +54,7 @@ class PDFGenerator:
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
         from reportlab.pdfgen.canvas import Canvas
-        from reportlab.lib.utils import ImageReader
+        from .reportlab_images import reportlab_image_reader
         from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
         font = "Helvetica"
@@ -93,27 +93,24 @@ class PDFGenerator:
                 return value
             p = Path(value)
             return p if p.is_absolute() else BASE_DIR.parent / p
-        def image_available(source) -> bool:
-            return bool(source) and (isinstance(source, str) or source.exists())
-        def fitted_image(source, box_width, box_height) -> Image:
+        def fitted_image(reader, box_width, box_height) -> Image:
             """Return a ReportLab image scaled proportionally inside a fixed box."""
-            source_value = source if isinstance(source, str) else str(source)
-            reader = ImageReader(source_value)
             width, height = reader.getSize()
             if not width or not height:
                 raise ValueError("Invalid image dimensions")
             scale = min(box_width / width, box_height / height)
-            return Image(source_value, width=width * scale, height=height * scale)
+            return Image(reader.fileName, width=width * scale, height=height * scale)
 
         doc = SimpleDocTemplate(str(path), pagesize=A4, rightMargin=9*mm, leftMargin=9*mm, topMargin=9*mm, bottomMargin=12*mm)
         story = []
         logo = None
         logo_path = image_source(invoice.company.logo_path)
         logo_box = 30*mm
-        if image_available(logo_path):
+        logo_reader = reportlab_image_reader(logo_path)
+        if logo_reader:
             try:
                 logo = Table(
-                    [[fitted_image(logo_path, logo_box, logo_box)]],
+                    [[fitted_image(logo_reader, logo_box, logo_box)]],
                     colWidths=[logo_box],
                     style=[
                         ("BOX", (0,0), (-1,-1), 0.35, border),
@@ -198,9 +195,10 @@ class PDFGenerator:
         bank = Paragraph(f"<b>Bank Details</b><br/>{'<br/>'.join(bank_lines)}", styles["Small"]) if bank_lines else None
         qr_cell = None
         qr_path = image_source(getattr(invoice.company, "upi_qr_image_url", ""))
-        if image_available(qr_path):
+        qr_reader = reportlab_image_reader(qr_path)
+        if qr_reader:
             try:
-                qr_cell = [Image(qr_path if isinstance(qr_path, str) else str(qr_path), width=27*mm, height=27*mm, kind="proportional"), Paragraph("<b>Scan &amp; Pay via UPI</b>", styles["Tiny"])]
+                qr_cell = [Image(qr_reader.fileName, width=27*mm, height=27*mm, kind="proportional"), Paragraph("<b>Scan &amp; Pay via UPI</b>", styles["Tiny"])]
             except Exception:
                 logger.warning("Skipping invalid UPI QR image", exc_info=True, extra={"company_id": invoice.company_id})
         terms_text = esc(getattr(invoice, "terms", "") or "1. Goods/services once sold will not be taken back unless agreed in writing.\n2. Subject to local jurisdiction.")
@@ -223,9 +221,10 @@ class PDFGenerator:
 
         signature_parts = []
         signature_path = image_source(getattr(invoice.company, "signature_image_path", ""))
-        if image_available(signature_path):
+        signature_reader = reportlab_image_reader(signature_path)
+        if signature_reader:
             try:
-                signature_parts.append(Table([[fitted_image(signature_path, 42*mm, 14*mm)]], colWidths=[56*mm], style=[("ALIGN", (0,0), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("LEFTPADDING", (0,0), (-1,-1), 0), ("RIGHTPADDING", (0,0), (-1,-1), 0), ("TOPPADDING", (0,0), (-1,-1), 0), ("BOTTOMPADDING", (0,0), (-1,-1), 0)]))
+                signature_parts.append(Table([[fitted_image(signature_reader, 42*mm, 14*mm)]], colWidths=[56*mm], style=[("ALIGN", (0,0), (-1,-1), "CENTER"), ("VALIGN", (0,0), (-1,-1), "MIDDLE"), ("LEFTPADDING", (0,0), (-1,-1), 0), ("RIGHTPADDING", (0,0), (-1,-1), 0), ("TOPPADDING", (0,0), (-1,-1), 0), ("BOTTOMPADDING", (0,0), (-1,-1), 0)]))
             except Exception:
                 logger.warning("Skipping invalid signature image", exc_info=True, extra={"company_id": invoice.company_id})
         if signature_parts:
