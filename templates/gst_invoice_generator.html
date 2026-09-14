@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Free GST Invoice Generator Online | Create GST Bill PDF{% endblock %}
+{% block meta_description %}Create GST invoices online with automatic CGST, SGST and IGST calculation. Generate a professional GST bill and download the PDF in seconds with GST Smart.{% endblock %}
+{% block canonical_url %}https://gstsmart.com/gst-invoice-generator{% endblock %}
+{% block og_title %}Free GST Invoice Generator Online | GST Smart{% endblock %}
+{% block og_description %}Generate professional GST invoices online with automatic CGST, SGST and IGST calculation and instant PDF download.{% endblock %}
+{% block og_url %}https://gstsmart.com/gst-invoice-generator{% endblock %}
+{% block twitter_title %}Free GST Invoice Generator Online | GST Smart{% endblock %}
+{% block twitter_description %}Create GST invoices online with automatic CGST, SGST and IGST calculation and download a professional PDF instantly.{% endblock %}
+{% block structured_data %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "GST Smart GST Invoice Generator",
+      "url": "https://gstsmart.com/gst-invoice-generator",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "INR"
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What is a GST invoice?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "A GST invoice is a tax invoice issued for taxable goods or services. It normally includes supplier and customer details, invoice number and date, item details, taxable value, GST rate and the applicable CGST, SGST or IGST amounts."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "When are CGST and SGST used?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "CGST and SGST generally apply to intra-state supplies, where the supplier and place of supply are in the same state."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "When is IGST used?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "IGST generally applies to inter-state supplies, where the supplier and place of supply are in different states."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I download the GST invoice as a PDF?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. GST Smart can generate a professional GST invoice PDF that you can download after entering the required invoice details."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
+{% endblock %}
+{% block content %}
+<section class="landing-hero rounded-4 overflow-hidden mb-5" aria-labelledby="gst-generator-title">
+  <div class="row align-items-center g-4 p-4 p-lg-5">
+    <div class="col-lg-8">
+      <span class="badge rounded-pill text-bg-light text-primary fw-semibold mb-3">Free Online GST Invoice Generator</span>
+      <h1 id="gst-generator-title" class="display-5 fw-bold text-white mb-3">Free GST Invoice Generator Online</h1>
+      <p class="lead text-white-75 mb-4">Create a professional GST invoice with automatic CGST, SGST or IGST calculation and download the finished invoice as a PDF in seconds.</p>
+      <form method="post" action="{{ url_for('track_create_invoice_click') }}" class="m-0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="btn btn-light btn-lg fw-semibold px-4">Create Free GST Invoice</button>
+      </form>
+    </div>
+    <div class="col-lg-4">
+      <div class="card border-0 shadow-lg h-100">
+        <div class="card-body p-4">
+          <div class="small text-muted fw-semibold text-uppercase mb-2">GST Smart</div>
+          <h2 class="h4">Quick GST billing</h2>
+          <ul class="mb-0 ps-3">
+            <li class="mb-2">Automatic GST calculation</li>
+            <li class="mb-2">CGST / SGST / IGST breakup</li>
+            <li class="mb-2">Customer and item details</li>
+            <li>Professional PDF download</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="landing-section mb-5">
+  <div class="row g-4">
+    <div class="col-lg-7">
+      <h2 class="fw-bold mb-3">What is a GST invoice?</h2>
+      <p>A GST invoice is a tax invoice used for taxable supplies of goods or services. A complete invoice normally contains the supplier and customer information, invoice number and date, product or service description, quantity, taxable value, GST rate and the tax breakup.</p>
+      <p class="mb-0">GST Smart is designed for freelancers, traders, shops and small businesses that want to create clear GST invoices without setting up a complex accounting system.</p>
+    </div>
+    <div class="col-lg-5">
+      <div class="card h-100">
+        <div class="card-body">
+          <h2 class="h4">Common GST invoice details</h2>
+          <ul class="mb-0">
+            <li>Business name and GSTIN, when applicable</li>
+            <li>Customer name and address</li>
+            <li>Invoice number and invoice date</li>
+            <li>Item or service description</li>
+            <li>HSN/SAC, quantity and unit price</li>
+            <li>GST rate and tax amounts</li>
+            <li>Place of supply and total amount</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="landing-section mb-5">
+  <div class="text-center mb-4">
+    <p class="text-uppercase text-primary fw-bold small mb-2">GST Calculation</p>
+    <h2 class="fw-bold">CGST + SGST or IGST?</h2>
+  </div>
+  <div class="row g-3">
+    <div class="col-md-6">
+      <div class="landing-tile h-100 d-block">
+        <h3 class="h5">Intra-state supply</h3>
+        <p class="mb-0">When the supplier and place of supply are in the same state, GST is generally split into CGST and SGST.</p>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="landing-tile h-100 d-block">
+        <h3 class="h5">Inter-state supply</h3>
+        <p class="mb-0">When the supplier and place of supply are in different states, IGST generally applies.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="landing-section mb-5" aria-labelledby="generator-how-title">
+  <div class="text-center mb-4">
+    <p class="text-uppercase text-primary fw-bold small mb-2">How It Works</p>
+    <h2 id="generator-how-title" class="fw-bold">Create your GST bill in three steps</h2>
+  </div>
+  <div class="row g-3">
+    {% for step in ["Enter your business and customer details", "Add products or services and GST rates", "Generate and download the GST invoice PDF"] %}
+    <div class="col-md-4"><div class="step-card h-100"><div class="step-number">{{ loop.index }}</div><strong>{{ step }}</strong></div></div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="landing-section mb-5">
+  <h2 class="fw-bold mb-4">GST invoice example</h2>
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead><tr><th>Description</th><th class="text-end">Taxable Value</th><th class="text-end">GST</th><th class="text-end">Total</th></tr></thead>
+      <tbody>
+        <tr><td>Professional service</td><td class="text-end">₹10,000</td><td class="text-end">18%</td><td class="text-end">₹11,800</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="text-muted mb-0">For a same-state transaction at 18% GST, the ₹1,800 tax would typically be shown as ₹900 CGST + ₹900 SGST. For an inter-state transaction, it would typically be shown as ₹1,800 IGST.</p>
+</section>
+
+<section class="landing-section mb-5" aria-labelledby="faq-title">
+  <div class="text-center mb-4">
+    <p class="text-uppercase text-primary fw-bold small mb-2">FAQ</p>
+    <h2 id="faq-title" class="fw-bold">GST Invoice Generator FAQs</h2>
+  </div>
+  <div class="accordion" id="gstInvoiceFaq">
+    {% set faqs = [
+      ("What is a GST invoice?", "A GST invoice is a tax invoice for taxable goods or services. It normally contains supplier and customer details, invoice information, taxable value, GST rate and the applicable tax breakup."),
+      ("When are CGST and SGST used?", "CGST and SGST generally apply to intra-state supplies, where the supplier and place of supply are in the same state."),
+      ("When is IGST used?", "IGST generally applies to inter-state supplies, where the supplier and place of supply are in different states."),
+      ("Can I download the GST invoice as a PDF?", "Yes. After entering the invoice details, GST Smart generates a professional GST invoice PDF for download.")
+    ] %}
+    {% for question, answer in faqs %}
+    <div class="accordion-item">
+      <h3 class="accordion-header" id="faq-heading-{{ loop.index }}">
+        <button class="accordion-button{% if not loop.first %} collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#faq-{{ loop.index }}" aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="faq-{{ loop.index }}">{{ question }}</button>
+      </h3>
+      <div id="faq-{{ loop.index }}" class="accordion-collapse collapse{% if loop.first %} show{% endif %}" aria-labelledby="faq-heading-{{ loop.index }}" data-bs-parent="#gstInvoiceFaq">
+        <div class="accordion-body">{{ answer }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="landing-section why-section rounded-4 p-4 p-lg-5 text-center">
+  <h2 class="fw-bold">Create your GST invoice now</h2>
+  <p class="mb-4">Use GST Smart to calculate the GST breakup and generate a professional invoice PDF.</p>
+  <form method="post" action="{{ url_for('track_create_invoice_click') }}" class="m-0 d-inline-block">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="btn btn-primary btn-lg fw-semibold px-4">Create Free GST Invoice</button>
+  </form>
+</section>
+{% endblock %}
